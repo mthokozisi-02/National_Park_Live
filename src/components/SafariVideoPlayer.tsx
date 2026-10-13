@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { SafariCameraStream, DroneTelemetry, WildlifeDetection } from '@/types/safari';
+import { SafariCameraStream, DroneTelemetry, WildlifeDetection, StreamStatus } from '@/types/safari';
 import { DroneHudOverlay } from './DroneHudOverlay';
 import { savannaAudio } from '@/utils/audioSynthesizer';
 import {
@@ -18,7 +18,9 @@ import {
   Radio,
   Sliders,
   CheckCircle2,
-  Share2
+  AlertTriangle,
+  Loader2,
+  Download
 } from 'lucide-react';
 
 interface SafariVideoPlayerProps {
@@ -51,13 +53,14 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isAudioMuted, setIsAudioMuted] = useState<boolean>(true);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [videoError, setVideoError] = useState<boolean>(false);
-  const [snapshotSuccess, setSnapshotSuccess] = useState<string | null>(null);
+  const [snapshotStatus, setSnapshotStatus] = useState<{ message: string; isError?: boolean } | null>(null);
   const [simulatedPing, setSimulatedPing] = useState<number>(118);
 
-  // Ping jitter simulation to reflect live WebRTC link
+  // Ping jitter simulation to reflect low-latency link
   useEffect(() => {
     const interval = setInterval(() => {
       setSimulatedPing(Math.floor(110 + Math.random() * 25));
@@ -65,13 +68,25 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
     return () => clearInterval(interval);
   }, []);
 
-  // Sync ambient soundscape
+  // Synchronize fullscreen state with document changes (e.g. user presses Esc)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === containerRef.current);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  // Ambient soundscape audio toggle
   const toggleAudio = () => {
     const active = savannaAudio.toggle();
     setIsAudioMuted(!active);
   };
 
-  // Procedural Canvas Drone Camera Feed Fallback / Overlay
+  // Procedural Canvas Drone Camera Feed Fallback / Offline Engine
   useEffect(() => {
     if (!videoError) return;
 
@@ -98,7 +113,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
       // Procedural Acacia Trees & scrub bushes
       ctx.fillStyle = '#283818';
       for (let i = 0; i < 40; i++) {
-        const seedX = ((i * 137.5 + frame * 0.4) % w);
+        const seedX = (i * 137.5 + frame * 0.4) % w;
         const seedY = (i * 91.3) % h;
         const radius = 12 + (i % 8) * 3;
         ctx.beginPath();
@@ -108,14 +123,14 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
 
       // Procedural Elephant silhouettes crossing the plain
       ctx.fillStyle = '#3a3a3a';
-      const herdBaseX = (w * 0.4 + Math.sin(frame * 0.01) * 30);
-      const herdBaseY = (h * 0.5 + Math.cos(frame * 0.008) * 20);
+      const herdBaseX = w * 0.4 + Math.sin(frame * 0.01) * 30;
+      const herdBaseY = h * 0.5 + Math.cos(frame * 0.008) * 20;
 
       // Lead Matriarch
       ctx.beginPath();
       ctx.ellipse(herdBaseX, herdBaseY, 32, 22, -0.2, 0, Math.PI * 2);
       ctx.fill();
-      ctx.beginPath(); // Head & Ears
+      ctx.beginPath();
       ctx.arc(herdBaseX + 26, herdBaseY - 6, 14, 0, Math.PI * 2);
       ctx.fill();
 
@@ -127,7 +142,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
       ctx.ellipse(herdBaseX - 90, herdBaseY + 15, 18, 12, -0.2, 0, Math.PI * 2);
       ctx.fill();
 
-      // Sun glint / heat shimmer
+      // Atmospheric shimmer
       ctx.fillStyle = 'rgba(255, 230, 180, 0.04)';
       ctx.fillRect(0, 0, w, h);
 
@@ -142,10 +157,8 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
     if (videoRef.current) {
       if (isPlaying) {
         videoRef.current.pause();
-        setIsPlaying(false);
       } else {
         videoRef.current.play().catch(() => {});
-        setIsPlaying(true);
       }
     } else {
       setIsPlaying(!isPlaying);
@@ -156,17 +169,161 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
       containerRef.current.requestFullscreen().catch(() => {});
-      setIsFullscreen(true);
     } else {
       document.exitFullscreen().catch(() => {});
-      setIsFullscreen(false);
     }
   };
 
+  // HIGH-PRIORITY FIX: Real Snapshot Capture with Telemetry Watermark & File Download
   const handleTakeSnapshot = useCallback(() => {
-    setSnapshotSuccess('Tactical inspection snapshot captured with GPS stamp!');
-    setTimeout(() => setSnapshotSuccess(null), 3500);
-  }, []);
+    const captureWidth = 1920;
+    const captureHeight = 1080;
+    const captureCanvas = document.createElement('canvas');
+    captureCanvas.width = captureWidth;
+    captureCanvas.height = captureHeight;
+    const ctx = captureCanvas.getContext('2d');
+
+    if (!ctx) {
+      setSnapshotStatus({ message: 'Failed to initialize capture canvas', isError: true });
+      setTimeout(() => setSnapshotStatus(null), 3500);
+      return;
+    }
+
+    let frameCaptured = false;
+
+    // 1. Draw video or canvas fallback
+    if (!videoError && videoRef.current && videoRef.current.readyState >= 2) {
+      try {
+        ctx.drawImage(videoRef.current, 0, 0, captureWidth, captureHeight);
+        frameCaptured = true;
+      } catch (err) {
+        // Cross-Origin security may taint canvas if CORS headers are missing on sample CDN
+        frameCaptured = false;
+      }
+    }
+
+    if (!frameCaptured && canvasRef.current) {
+      try {
+        ctx.drawImage(canvasRef.current, 0, 0, captureWidth, captureHeight);
+        frameCaptured = true;
+      } catch {}
+    }
+
+    // If both failed or cross-origin blocked, render a styled tactical capture slate
+    if (!frameCaptured) {
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, captureWidth, captureHeight);
+      ctx.strokeStyle = '#0284c7';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(20, 20, captureWidth - 40, captureHeight - 40);
+    }
+
+    // 2. Render Tactical Telemetry Watermark Overlay
+    // Top banner
+    ctx.fillStyle = 'rgba(7, 13, 19, 0.85)';
+    ctx.fillRect(40, 40, 720, 160);
+    ctx.strokeStyle = '#06b6d4';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(40, 40, 720, 160);
+
+    ctx.fillStyle = '#06b6d4';
+    ctx.font = 'bold 28px monospace';
+    ctx.fillText('SAFARIVISION TACTICAL INSPECTION', 60, 80);
+
+    ctx.fillStyle = '#f3f4f6';
+    ctx.font = '20px monospace';
+    ctx.fillText(`DRONE ID:  ${telemetry.droneId} (${telemetry.droneModel})`, 60, 115);
+    ctx.fillText(`GPS FIX:   ${telemetry.latitude.toFixed(6)}°, ${telemetry.longitude.toFixed(6)}° (RTK ${telemetry.rtkStatus})`, 60, 145);
+    ctx.fillText(`ALTITUDE:  ${telemetry.altitude.toFixed(1)}m AGL | AIRSPEED: ${telemetry.speed.toFixed(1)} km/h | HDG: ${Math.round(telemetry.heading)}°`, 60, 175);
+
+    // Bottom Watermark Timestamp
+    const nowIso = new Date().toISOString();
+    ctx.fillStyle = 'rgba(7, 13, 19, 0.85)';
+    ctx.fillRect(captureWidth - 620, captureHeight - 100, 580, 60);
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(captureWidth - 620, captureHeight - 100, 580, 60);
+
+    ctx.fillStyle = '#f59e0b';
+    ctx.font = 'bold 18px monospace';
+    ctx.fillText(`TIMESTAMP: ${nowIso}`, captureWidth - 600, captureHeight - 65);
+
+    // Target crosshair in center
+    ctx.strokeStyle = 'rgba(6, 182, 212, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(captureWidth / 2 - 40, captureHeight / 2);
+    ctx.lineTo(captureWidth / 2 + 40, captureHeight / 2);
+    ctx.moveTo(captureWidth / 2, captureHeight / 2 - 40);
+    ctx.lineTo(captureWidth / 2, captureHeight / 2 + 40);
+    ctx.stroke();
+
+    // 3. Trigger Real Browser Download
+    try {
+      captureCanvas.toBlob((blob) => {
+        if (!blob) {
+          setSnapshotStatus({ message: 'Failed to export image blob', isError: true });
+          setTimeout(() => setSnapshotStatus(null), 3500);
+          return;
+        }
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const filename = `SafariVision_Snapshot_${Date.now()}.png`;
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        setSnapshotStatus({
+          message: `Saved snapshot file: ${filename}`,
+          isError: false,
+        });
+        setTimeout(() => setSnapshotStatus(null), 4000);
+      }, 'image/png');
+    } catch (err: any) {
+      setSnapshotStatus({
+        message: 'Snapshot capture restricted by video CORS. Fallback logged.',
+        isError: true,
+      });
+      setTimeout(() => setSnapshotStatus(null), 4000);
+    }
+  }, [telemetry, videoError]);
+
+  // Stream status badge mapping
+  const renderStatusBadge = () => {
+    switch (currentStream.streamStatus) {
+      case 'live':
+        return (
+          <div className="flex items-center gap-2 bg-emerald-600/20 border border-emerald-500/50 px-2.5 py-1 rounded text-emerald-400 font-bold">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>LIVE FEED (WEBRTC)</span>
+          </div>
+        );
+      case 'demo':
+        return (
+          <div className="flex items-center gap-2 bg-amber-500/20 border border-amber-500/50 px-2.5 py-1 rounded text-amber-300 font-bold">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <span>DEMO FOOTAGE (SAMPLE FEED)</span>
+          </div>
+        );
+      case 'connecting':
+        return (
+          <div className="flex items-center gap-2 bg-cyan-600/20 border border-cyan-500/50 px-2.5 py-1 rounded text-cyan-400 font-bold">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            <span>CONNECTING...</span>
+          </div>
+        );
+      default:
+        return (
+          <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 px-2.5 py-1 rounded text-gray-400 font-bold">
+            <span>FEED OFFLINE</span>
+          </div>
+        );
+    }
+  };
 
   return (
     <div
@@ -177,6 +334,15 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
     >
       {/* Video Stream or Fallback Engine */}
       <div className="relative w-full h-full flex-1 overflow-hidden bg-slate-950">
+        {isLoading && !videoError && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-2 font-mono text-xs text-cyan-400">
+              <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
+              <span>BUFFERING STREAM FEED...</span>
+            </div>
+          </div>
+        )}
+
         {!videoError ? (
           <video
             ref={videoRef}
@@ -186,7 +352,17 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
             loop
             muted
             playsInline
-            onError={() => setVideoError(true)}
+            onLoadStart={() => setIsLoading(true)}
+            onCanPlay={() => setIsLoading(false)}
+            onPlaying={() => {
+              setIsPlaying(true);
+              setIsLoading(false);
+            }}
+            onPause={() => setIsPlaying(false)}
+            onError={() => {
+              setVideoError(true);
+              setIsLoading(false);
+            }}
             className={`w-full h-full object-cover transition-filter duration-300 ${
               showThermal
                 ? 'filter invert contrast-200 hue-rotate-180 brightness-90 saturate-200'
@@ -213,11 +389,21 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
           onSelectAnimal={onSelectAnimal}
         />
 
-        {/* Snapshot Success Notification Banner */}
-        {snapshotSuccess && (
-          <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-emerald-500 text-black px-4 py-2 rounded-lg font-mono text-xs font-bold flex items-center gap-2 shadow-lg animate-bounce">
-            <CheckCircle2 className="w-4 h-4" />
-            {snapshotSuccess}
+        {/* Snapshot Notification Banner */}
+        {snapshotStatus && (
+          <div
+            className={`absolute top-20 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-lg font-mono text-xs font-bold flex items-center gap-2 shadow-xl animate-bounce ${
+              snapshotStatus.isError
+                ? 'bg-amber-500 text-black'
+                : 'bg-emerald-500 text-black'
+            }`}
+          >
+            {snapshotStatus.isError ? (
+              <AlertTriangle className="w-4 h-4" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            <span>{snapshotStatus.message}</span>
           </div>
         )}
       </div>
@@ -226,10 +412,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
       <div className="relative z-20 bg-slate-950/90 backdrop-blur-xl border-t border-cyan-500/20 px-4 py-3 flex flex-wrap items-center justify-between gap-4 text-xs font-mono">
         {/* Stream Status & Source Selector */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-red-600/20 border border-red-500/50 px-2.5 py-1 rounded text-red-400 font-bold">
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-            <span>LIVE FEED</span>
-          </div>
+          {renderStatusBadge()}
 
           <div className="flex items-center gap-1.5 text-gray-400 bg-slate-900 px-2 py-1 rounded border border-slate-800">
             <Radio className="w-3.5 h-3.5 text-cyan-400" />
@@ -247,6 +430,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
               const selected = streams.find((s) => s.id === e.target.value);
               if (selected) {
                 setVideoError(false);
+                setIsLoading(true);
                 onSelectStream(selected);
               }
             }}
@@ -262,6 +446,15 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
 
         {/* Feature Switches & Tactical Tools */}
         <div className="flex items-center gap-2">
+          {/* Play/Pause Button */}
+          <button
+            onClick={togglePlay}
+            className="bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 p-1.5 rounded text-gray-300"
+            title={isPlaying ? 'Pause Feed' : 'Resume Feed'}
+          >
+            {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+          </button>
+
           {/* AI Vision Overlay Toggle */}
           <button
             onClick={() => setShowAiVision(!showAiVision)}
@@ -290,11 +483,11 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
             <span>FLIR THERMAL</span>
           </button>
 
-          {/* Snapshot Button */}
+          {/* Real Snapshot Download Button */}
           <button
             onClick={handleTakeSnapshot}
             className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-cyan-400 text-gray-300 px-3 py-1 rounded transition-colors"
-            title="Capture Geotagged Frame"
+            title="Capture & Download Geotagged Frame"
           >
             <Camera className="w-3.5 h-3.5 text-cyan-400" />
             <span>SNAPSHOT</span>
@@ -325,8 +518,8 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
           {/* Fullscreen Toggle */}
           <button
             onClick={toggleFullscreen}
-            className="bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-600 p-1 rounded text-gray-300"
-            title="Fullscreen"
+            className="bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-600 p-1.5 rounded text-gray-300"
+            title="Toggle Fullscreen"
           >
             {isFullscreen ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
           </button>

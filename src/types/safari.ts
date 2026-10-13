@@ -1,3 +1,7 @@
+export type StreamStatus = 'connecting' | 'live' | 'demo' | 'reconnecting' | 'offline';
+export type DetectionSource = 'simulated' | 'model' | 'operator';
+export type SimulationMode = 'automatic' | 'manual';
+
 export interface DroneTelemetry {
   droneId: string;
   droneModel: string;
@@ -19,6 +23,7 @@ export interface DroneTelemetry {
   satelliteCount: number;
   rtkStatus: 'FIXED' | 'FLOAT' | 'STANDBY';
   isLive: boolean;
+  dataMode: 'simulated' | 'live';
   flightMode: 'AUTONOMOUS PATROL' | 'MANUAL OVERRIDE' | 'RETURN TO HOME' | 'TARGET ORBIT';
   temperatureC: number;
   windSpeedKmh: number;
@@ -48,6 +53,8 @@ export interface WildlifeDetection {
   funFact: string;
   imageUrl: string;
   timestamp: string;
+  source: DetectionSource;
+  modelVersion?: string;
 }
 
 export interface SafariCameraStream {
@@ -60,6 +67,7 @@ export interface SafariCameraStream {
   posterUrl: string;
   quality: '4K Ultra HD' | '1080p 60fps';
   bitrateMbps: number;
+  streamStatus: StreamStatus;
   detectedWildlife: WildlifeDetection[];
 }
 

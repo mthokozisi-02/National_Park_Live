@@ -7,7 +7,12 @@ import {
   MAP_FEATURES,
   MOCK_WILDLIFE_CATALOG
 } from '@/data/mockSafariData';
-import { DroneTelemetry, SafariCameraStream, WildlifeDetection, MapFeature } from '@/types/safari';
+import {
+  DroneTelemetry,
+  SafariCameraStream,
+  WildlifeDetection,
+  SimulationMode
+} from '@/types/safari';
 import { SafariVideoPlayer } from '@/components/SafariVideoPlayer';
 import { TelemetryPanel } from '@/components/TelemetryPanel';
 import { SafariMap } from '@/components/SafariMap';
@@ -15,20 +20,14 @@ import { WildlifePanel } from '@/components/WildlifePanel';
 import { VirtualRealityExperience } from '@/components/VirtualRealityExperience';
 import { ArchitectureModal } from '@/components/ArchitectureModal';
 import {
-  ShieldAlert,
   Headphones,
-  Compass,
   Workflow,
-  Radio,
-  Sparkles,
-  Info,
-  MapPin,
-  ExternalLink,
-  ChevronDown
+  MapPin
 } from 'lucide-react';
 
 export default function SafariVisionApp() {
   const [telemetry, setTelemetry] = useState<DroneTelemetry>(INITIAL_TELEMETRY);
+  const [simulationMode, setSimulationMode] = useState<SimulationMode>('automatic');
   const [currentStream, setCurrentStream] = useState<SafariCameraStream>(CAMERA_STREAMS[0]);
   const [selectedAnimal, setSelectedAnimal] = useState<WildlifeDetection | null>(null);
   const [showAiVision, setShowAiVision] = useState<boolean>(true);
@@ -36,25 +35,41 @@ export default function SafariVisionApp() {
   const [isVrActive, setIsVrActive] = useState<boolean>(false);
   const [isArchModalOpen, setIsArchModalOpen] = useState<boolean>(false);
 
-  // Background Autonomous Patrol Drone Flight Simulation (Gently updates telemetry for live feel)
+  // Background Drone Flight Simulation
   useEffect(() => {
     let tick = 0;
     const interval = setInterval(() => {
       tick++;
       setTelemetry((prev) => {
-        // Patrol orbit around Hwange coordinates
+        // Subtle pitch & roll turbulence
+        const newRoll = Math.sin(tick * 0.2) * 2.2;
+        const newPitch = Math.cos(tick * 0.15) * 1.8;
+
+        // If in MANUAL HOLD mode, do not override user-adjusted speed or altitude
+        if (simulationMode === 'manual') {
+          return {
+            ...prev,
+            roll: newRoll,
+            pitch: newPitch,
+            batteryPercentage: Math.max(12, 78 - Math.floor(tick / 180)),
+          };
+        }
+
+        // AUTOMATIC PATROL mode: Orbit around Hwange coordinates
         const angle = tick * 0.04;
         const radiusLat = 0.0035;
         const radiusLng = 0.0045;
         const newLat = -18.6292 + Math.sin(angle) * radiusLat;
         const newLng = 26.9501 + Math.cos(angle) * radiusLng;
 
-        // Dynamic heading pointing along tangent
-        const newHeading = (Math.atan2(Math.sin(angle), Math.cos(angle)) * (180 / Math.PI) + 90 + 360) % 360;
+        // Dynamic heading pointing along orbit tangent
+        const newHeading =
+          (Math.atan2(Math.sin(angle), Math.cos(angle)) * (180 / Math.PI) + 90 + 360) % 360;
 
-        // Realistic subtle pitch & roll turbulence
-        const newRoll = Math.sin(tick * 0.2) * 2.2;
-        const newPitch = Math.cos(tick * 0.15) * 1.8;
+        // Smooth convergence toward target altitude with minor atmospheric draft
+        const targetAlt = prev.targetAltitude;
+        const altitudeDrift = Math.cos(tick * 0.08) * 1.2;
+        const newAltitude = targetAlt + altitudeDrift;
 
         return {
           ...prev,
@@ -64,14 +79,14 @@ export default function SafariVisionApp() {
           roll: newRoll,
           pitch: newPitch,
           speed: 18.0 + Math.sin(tick * 0.1) * 2.5,
-          altitude: 124.0 + Math.cos(tick * 0.08) * 3.0,
+          altitude: newAltitude,
           batteryPercentage: Math.max(12, 78 - Math.floor(tick / 180)),
         };
       });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [simulationMode]);
 
   return (
     <main className="min-h-screen bg-[#070b0e] text-gray-100 flex flex-col font-sans">
@@ -96,14 +111,14 @@ export default function SafariVisionApp() {
                 <MapPin className="w-3 h-3 text-amber-400" />
                 <span>Hwange National Park, Zimbabwe</span>
                 <span className="text-gray-600">•</span>
-                <span className="text-emerald-400">Drone Active</span>
+                <span className="text-amber-400">Prototype Demonstration</span>
               </div>
             </div>
           </div>
 
           {/* Action Navigation Buttons */}
           <div className="flex items-center gap-2 lg:gap-3">
-            {/* System Architecture Spec Sheet */}
+            {/* System Architecture Blueprint */}
             <button
               onClick={() => setIsArchModalOpen(true)}
               className="hidden md:flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 px-3.5 py-1.5 rounded-lg text-xs font-mono transition-colors cursor-pointer"
@@ -163,6 +178,8 @@ export default function SafariVisionApp() {
             <TelemetryPanel
               telemetry={telemetry}
               setTelemetry={setTelemetry}
+              simulationMode={simulationMode}
+              setSimulationMode={setSimulationMode}
             />
 
             <WildlifePanel
@@ -194,7 +211,7 @@ export default function SafariVisionApp() {
         <div className="flex items-center gap-2">
           <span className="text-gray-400 font-semibold">SafariVision Prototype v1.0</span>
           <span>•</span>
-          <span>Built for Client Demonstration & Technical Proof of Concept</span>
+          <span>Proof of Concept Prototype (Hwange National Park)</span>
         </div>
         <div className="flex items-center gap-4 text-cyan-500">
           <button
@@ -204,7 +221,7 @@ export default function SafariVisionApp() {
             Drone Ingestion Blueprint
           </button>
           <span>•</span>
-          <span className="text-gray-500">Hwange Wildlife Protection Trust</span>
+          <span className="text-gray-500">Conservation Telemetry Project</span>
         </div>
       </footer>
     </main>

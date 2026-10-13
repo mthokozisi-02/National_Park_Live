@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { DroneTelemetry } from '@/types/safari';
+import { DroneTelemetry, SimulationMode } from '@/types/safari';
 import {
   BatteryCharging,
   Gauge,
@@ -13,25 +13,34 @@ import {
   SlidersHorizontal,
   RotateCcw,
   Shield,
-  Activity
+  Activity,
+  Play,
+  Pause
 } from 'lucide-react';
 
 interface TelemetryPanelProps {
   telemetry: DroneTelemetry;
   setTelemetry: React.Dispatch<React.SetStateAction<DroneTelemetry>>;
+  simulationMode: SimulationMode;
+  setSimulationMode: (mode: SimulationMode) => void;
 }
 
 export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
   telemetry,
   setTelemetry,
+  simulationMode,
+  setSimulationMode,
 }) => {
   // Simulator adjustment helpers for client interactive presentations
   const adjustAltitude = (delta: number) => {
-    setTelemetry((prev) => ({
-      ...prev,
-      altitude: Math.max(20, Math.min(300, prev.altitude + delta)),
-      targetAltitude: Math.max(20, Math.min(300, prev.altitude + delta)),
-    }));
+    setTelemetry((prev) => {
+      const newAlt = Math.max(20, Math.min(300, prev.targetAltitude + delta));
+      return {
+        ...prev,
+        targetAltitude: newAlt,
+        altitude: newAlt,
+      };
+    });
   };
 
   const adjustSpeed = (delta: number) => {
@@ -119,7 +128,9 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
               <span className="text-xl font-bold text-white">{Math.round(telemetry.heading)}°</span>
               <span className="text-[10px] text-amber-400">BEARING</span>
             </div>
-            <span className="text-[10px] text-gray-500 block mt-1">Roll {telemetry.roll.toFixed(1)}° | Pitch {telemetry.pitch.toFixed(1)}°</span>
+            <span className="text-[10px] text-gray-500 block mt-1">
+              Roll {telemetry.roll.toFixed(1)}° | Pitch {telemetry.pitch.toFixed(1)}°
+            </span>
           </div>
 
           {/* Battery */}
@@ -146,7 +157,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4 text-cyan-400" />
             <div>
-              <div className="text-[10px] text-gray-400">FLIGHT AUTOPILOT MODE</div>
+              <div className="text-[10px] text-gray-400">SIMULATED AUTOPILOT MODE</div>
               <div className="font-bold text-white">{telemetry.flightMode}</div>
             </div>
           </div>
@@ -205,35 +216,55 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
 
       {/* Client Demo Interactive Sandbox Controls */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
-        <div className="flex items-center gap-1.5 text-amber-400 text-[11px] font-bold mb-2">
-          <SlidersHorizontal className="w-3.5 h-3.5" />
-          <span>PROTOTYPE SIMULATION CONTROLS</span>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5 text-amber-400 text-[11px] font-bold">
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>PROTOTYPE SIMULATION CONTROLS</span>
+          </div>
+          {/* Simulation Mode Toggle (Automatic vs Manual) */}
+          <button
+            onClick={() =>
+              setSimulationMode(simulationMode === 'automatic' ? 'manual' : 'automatic')
+            }
+            className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors flex items-center gap-1 ${
+              simulationMode === 'automatic'
+                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+            }`}
+          >
+            {simulationMode === 'automatic' ? <Play className="w-2.5 h-2.5" /> : <Pause className="w-2.5 h-2.5" />}
+            <span>{simulationMode === 'automatic' ? 'AUTO PATROL' : 'MANUAL HOLD'}</span>
+          </button>
         </div>
+
         <p className="text-[10px] text-gray-400 mb-2">
-          Use these controls during your client pitch to demonstrate live telemetry reactions in the HUD and 3D VR environment.
+          {simulationMode === 'automatic'
+            ? 'Autopilot is orbiting simulated coordinates. Adjusting below overrides baseline.'
+            : 'Manual hold active: values remain locked to your manual adjustments.'}
         </p>
+
         <div className="flex items-center gap-2">
           <button
             onClick={() => adjustAltitude(10)}
-            className="flex-1 bg-slate-800 hover:bg-slate-700 text-gray-200 py-1 rounded text-[10px] border border-slate-700"
+            className="flex-1 bg-slate-800 hover:bg-slate-700 text-gray-200 py-1 rounded text-[10px] border border-slate-700 cursor-pointer"
           >
             +10m Alt
           </button>
           <button
             onClick={() => adjustAltitude(-10)}
-            className="flex-1 bg-slate-800 hover:bg-slate-700 text-gray-200 py-1 rounded text-[10px] border border-slate-700"
+            className="flex-1 bg-slate-800 hover:bg-slate-700 text-gray-200 py-1 rounded text-[10px] border border-slate-700 cursor-pointer"
           >
             -10m Alt
           </button>
           <button
             onClick={() => adjustSpeed(5)}
-            className="flex-1 bg-slate-800 hover:bg-slate-700 text-gray-200 py-1 rounded text-[10px] border border-slate-700"
+            className="flex-1 bg-slate-800 hover:bg-slate-700 text-gray-200 py-1 rounded text-[10px] border border-slate-700 cursor-pointer"
           >
             +5 km/h
           </button>
           <button
             onClick={() => adjustSpeed(-5)}
-            className="flex-1 bg-slate-800 hover:bg-slate-700 text-gray-200 py-1 rounded text-[10px] border border-slate-700"
+            className="flex-1 bg-slate-800 hover:bg-slate-700 text-gray-200 py-1 rounded text-[10px] border border-slate-700 cursor-pointer"
           >
             -5 km/h
           </button>

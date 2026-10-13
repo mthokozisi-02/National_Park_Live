@@ -1,16 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import { WildlifeDetection } from '@/types/safari';
 import {
   Sparkles,
   Info,
   Clock,
-  Layers,
   ChevronRight,
   X,
-  ExternalLink,
-  ShieldAlert
+  Cpu
 } from 'lucide-react';
 
 interface WildlifePanelProps {
@@ -35,7 +33,7 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
           </span>
         </div>
         <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded font-semibold">
-          LIVE DETECTIONS ({detections.length})
+          SIMULATED DETECTIONS ({detections.length})
         </span>
       </div>
 
@@ -102,15 +100,16 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
               <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent" />
               <button
                 onClick={() => onSelectAnimal(null)}
-                className="absolute top-3 right-3 bg-black/60 hover:bg-black/90 text-white p-1.5 rounded-full border border-white/20 transition-colors"
+                className="absolute top-3 right-3 bg-black/60 hover:bg-black/90 text-white p-1.5 rounded-full border border-white/20 transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
 
               <div className="absolute bottom-3 left-4 right-4">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="bg-amber-500 text-black font-bold text-xs px-2 py-0.5 rounded font-mono">
-                    AI IDENTIFIED • {(selectedAnimal.confidence * 100).toFixed(0)}%
+                  <span className="bg-amber-500 text-black font-bold text-xs px-2 py-0.5 rounded font-mono flex items-center gap-1">
+                    <Cpu className="w-3 h-3" />
+                    SIMULATED AI • {(selectedAnimal.confidence * 100).toFixed(0)}%
                   </span>
                   <span className="bg-red-500/20 text-red-300 border border-red-500/40 text-[10px] px-2 py-0.5 rounded font-mono">
                     {selectedAnimal.conservationStatus}
@@ -120,7 +119,7 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
                   {selectedAnimal.commonName}
                 </h3>
                 <p className="text-xs text-amber-200/90 italic font-mono">
-                  {selectedAnimal.scientificName}
+                  {selectedAnimal.scientificName} • Source: {selectedAnimal.source.toUpperCase()} ({selectedAnimal.modelVersion || 'Simulated'})
                 </p>
               </div>
             </div>
@@ -165,13 +164,17 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
                   {selectedAnimal.funFact}
                 </p>
               </div>
+
+              <div className="text-[10px] text-gray-500 font-mono italic">
+                * Note: Wildlife metadata and detections are currently simulated demonstration values to showcase prospective computer vision cataloging before deploying real aerial models.
+              </div>
             </div>
 
             {/* Footer */}
             <div className="p-4 bg-slate-950 border-t border-slate-800 flex justify-end">
               <button
                 onClick={() => onSelectAnimal(null)}
-                className="bg-cyan-500 hover:bg-cyan-400 text-black font-bold px-4 py-1.5 rounded-lg text-xs font-mono transition-colors"
+                className="bg-cyan-500 hover:bg-cyan-400 text-black font-bold px-4 py-1.5 rounded-lg text-xs font-mono transition-colors cursor-pointer"
               >
                 CLOSE BIO
               </button>

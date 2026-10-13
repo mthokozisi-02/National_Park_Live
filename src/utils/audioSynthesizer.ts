@@ -4,15 +4,16 @@ class SavannaAudioEngine {
   private isPlaying: boolean = false;
   private masterGain: GainNode | null = null;
   private windGain: GainNode | null = null;
+  private windSource: AudioBufferSourceNode | null = null;
   private intervalId: NodeJS.Timeout | null = null;
+  private activeOscillators: Set<OscillatorNode> = new Set();
 
   public toggle(): boolean {
     if (this.isPlaying) {
       this.stop();
       return false;
     } else {
-      this.start();
-      return true;
+      return this.start();
     }
   }
 
@@ -20,18 +21,29 @@ class SavannaAudioEngine {
     return this.isPlaying;
   }
 
-  public start() {
-    if (typeof window === 'undefined') return;
+  public start(): boolean {
+    if (typeof window === 'undefined') return false;
+
+    // Prevent duplicate start
+    if (this.isPlaying && this.ctx && this.ctx.state === 'running') {
+      return true;
+    }
+
     try {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.ctx = new AudioCtx();
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+
+      if (!this.ctx || this.ctx.state === 'closed') {
+        this.ctx = new AudioCtx();
+      }
 
       if (this.ctx.state === 'suspended') {
-        this.ctx.resume();
+        this.ctx.resume().catch(() => {});
       }
 
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+      this.masterGain.gain.setValueAtTime(0.28, this.ctx.currentTime);
       this.masterGain.connect(this.ctx.destination);
 
       // 1. Gentle Savanna Breeze (Brown Noise filtered)
@@ -46,9 +58,9 @@ class SavannaAudioEngine {
         output[i] *= 3.5;
       }
 
-      const whiteNoise = this.ctx.createBufferSource();
-      whiteNoise.buffer = noiseBuffer;
-      whiteNoise.loop = true;
+      this.windSource = this.ctx.createBufferSource();
+      this.windSource.buffer = noiseBuffer;
+      this.windSource.loop = true;
 
       const filter = this.ctx.createBiquadFilter();
       filter.type = 'lowpass';
@@ -57,25 +69,31 @@ class SavannaAudioEngine {
       this.windGain = this.ctx.createGain();
       this.windGain.gain.setValueAtTime(0.2, this.ctx.currentTime);
 
-      whiteNoise.connect(filter);
+      this.windSource.connect(filter);
       filter.connect(this.windGain);
       this.windGain.connect(this.masterGain);
-      whiteNoise.start(0);
+      this.windSource.start(0);
 
       // 2. High savanna crickets / cicadas pulse
       this.startCicadaLayer();
 
       this.isPlaying = true;
+      return true;
     } catch {
       this.isPlaying = false;
+      return false;
     }
   }
 
   private startCicadaLayer() {
     if (!this.ctx || !this.masterGain) return;
 
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+    }
+
     this.intervalId = setInterval(() => {
-      if (!this.ctx || !this.masterGain || !this.isPlaying) return;
+      if (!this.ctx || !this.masterGain || !this.isPlaying || this.ctx.state !== 'running') return;
       try {
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
@@ -83,30 +101,60 @@ class SavannaAudioEngine {
         osc.frequency.setValueAtTime(4500 + Math.random() * 500, this.ctx.currentTime);
 
         gain.gain.setValueAtTime(0.001, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.04, this.ctx.currentTime + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.035, this.ctx.currentTime + 0.05);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.35);
 
         osc.connect(gain);
         gain.connect(this.masterGain);
 
+        this.activeOscillators.add(osc);
+        osc.onended = () => {
+          this.activeOscillators.delete(osc);
+        };
+
         osc.start();
         osc.stop(this.ctx.currentTime + 0.4);
-      } catch {
-        // ignore
-      }
+      } catch {}
     }, 1800);
   }
 
   public stop() {
-    if (this.intervalId) clearInterval(this.intervalId);
-    if (this.ctx) {
-      try {
-        this.ctx.close();
-      } catch {
-        // ignore
-      }
-      this.ctx = null;
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
     }
+
+    // Stop and disconnect active oscillators
+    this.activeOscillators.forEach((osc) => {
+      try {
+        osc.stop();
+        osc.disconnect();
+      } catch {}
+    });
+    this.activeOscillators.clear();
+
+    // Stop wind source
+    if (this.windSource) {
+      try {
+        this.windSource.stop();
+        this.windSource.disconnect();
+      } catch {}
+      this.windSource = null;
+    }
+
+    if (this.masterGain) {
+      try {
+        this.masterGain.disconnect();
+      } catch {}
+      this.masterGain = null;
+    }
+
+    if (this.ctx && this.ctx.state !== 'closed') {
+      try {
+        this.ctx.suspend().catch(() => {});
+      } catch {}
+    }
+
     this.isPlaying = false;
   }
 }

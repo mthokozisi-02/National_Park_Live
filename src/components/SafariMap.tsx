@@ -1,14 +1,16 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
-import { DroneTelemetry, MapFeature, WildlifeDetection } from '@/types/safari';
-import { MapPin, Navigation2, Compass, Layers } from 'lucide-react';
+import { DroneTelemetry, MapFeature } from '@/types/safari';
+import { Compass } from 'lucide-react';
 
 interface SafariMapProps {
   telemetry: DroneTelemetry;
   mapFeatures: MapFeature[];
   onSelectFeature?: (feature: MapFeature) => void;
 }
+
+const MAX_TRAIL_POINTS = 500;
 
 export const SafariMap: React.FC<SafariMapProps> = ({
   telemetry,
@@ -31,7 +33,6 @@ export const SafariMap: React.FC<SafariMapProps> = ({
 
       if (!isMounted || mapInstanceRef.current) return;
 
-      // Base coordinates around Hwange National Park
       const initialLat = telemetry.latitude;
       const initialLng = telemetry.longitude;
 
@@ -43,7 +44,7 @@ export const SafariMap: React.FC<SafariMapProps> = ({
 
       L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-      // Topographic / Satellite style tiles (CartoDB Dark Matter for futuristic tactical look)
+      // Topographic / Dark Matter CartoDB tiles
       L.tileLayer(
         'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
         {
@@ -61,7 +62,7 @@ export const SafariMap: React.FC<SafariMapProps> = ({
           className: 'custom-drone-icon',
           html: `
             <div style="transform: rotate(${heading}deg); transition: transform 0.3s ease; display: flex; align-items: center; justify-content: center; width: 42px; height: 42px;">
-              <div style="position: absolute; width: 44px; height: 44px; border-radius: 50%; border: 1.5px dashed rgba(6, 182, 212, 0.6); animation: spin 8s linear infinite;"></div>
+              <div style="position: absolute; width: 44px; height: 44px; border-radius: 50%; border: 1.5px dashed rgba(6, 182, 212, 0.6);"></div>
               <div style="background: rgba(14, 165, 233, 0.9); width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 16px #06b6d4; border: 2px solid #ffffff;">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
@@ -80,10 +81,11 @@ export const SafariMap: React.FC<SafariMapProps> = ({
       })
         .addTo(map)
         .bindPopup(`
-          <div style="font-family: monospace; font-size: 11px; color: #0f172a; padding: 4px;">
+          <div id="drone-popup-content" style="font-family: monospace; font-size: 11px; color: #0f172a; padding: 4px;">
             <strong>${telemetry.droneId}</strong><br/>
             Alt: ${telemetry.altitude.toFixed(1)}m AGL<br/>
-            Speed: ${telemetry.speed.toFixed(1)} km/h
+            Speed: ${telemetry.speed.toFixed(1)} km/h<br/>
+            Heading: ${Math.round(telemetry.heading)}°
           </div>
         `);
       droneMarkerRef.current = droneMarker;
@@ -100,7 +102,7 @@ export const SafariMap: React.FC<SafariMapProps> = ({
 
       // Add Wildlife & Point-of-Interest Markers
       mapFeatures.forEach((feat) => {
-        if (feat.type === 'drone') return; // Handled separately
+        if (feat.type === 'drone') return;
 
         let iconColor = '#f59e0b';
         let badgeSymbol = '🐾';
@@ -157,7 +159,7 @@ export const SafariMap: React.FC<SafariMapProps> = ({
     };
   }, []);
 
-  // Update drone marker position and heading when telemetry updates
+  // Update drone marker position, heading, popup data, and bounded trail
   useEffect(() => {
     if (!mapInstanceRef.current || !droneMarkerRef.current) return;
     import('leaflet').then((L) => {
@@ -182,16 +184,29 @@ export const SafariMap: React.FC<SafariMapProps> = ({
       });
       droneMarkerRef.current.setIcon(updatedIcon);
 
-      // Update flight trail
+      // MEDIUM FINDING FIX: Refresh popup content dynamically so speed and altitude are never stale
+      droneMarkerRef.current.setPopupContent(`
+        <div style="font-family: monospace; font-size: 11px; color: #0f172a; padding: 4px;">
+          <strong>${telemetry.droneId}</strong><br/>
+          Alt: ${telemetry.altitude.toFixed(1)}m AGL<br/>
+          Speed: ${telemetry.speed.toFixed(1)} km/h<br/>
+          Heading: ${Math.round(telemetry.heading)}°
+        </div>
+      `);
+
+      // MEDIUM FINDING FIX: Bound the breadcrumb trail to MAX_TRAIL_POINTS to avoid unbounded memory growth
       if (trailPolylineRef.current) {
         const last = trailPointsRef.current[trailPointsRef.current.length - 1];
         if (!last || last[0] !== latlng[0] || last[1] !== latlng[1]) {
           trailPointsRef.current.push(latlng);
+          if (trailPointsRef.current.length > MAX_TRAIL_POINTS) {
+            trailPointsRef.current.shift();
+          }
           trailPolylineRef.current.setLatLngs(trailPointsRef.current);
         }
       }
     });
-  }, [telemetry.latitude, telemetry.longitude, telemetry.heading]);
+  }, [telemetry.latitude, telemetry.longitude, telemetry.heading, telemetry.altitude, telemetry.speed, telemetry.droneId]);
 
   return (
     <div className="relative w-full h-[360px] rounded-xl overflow-hidden border border-cyan-500/20 bg-slate-900 shadow-xl flex flex-col">
@@ -200,7 +215,7 @@ export const SafariMap: React.FC<SafariMapProps> = ({
         <Compass className="w-3.5 h-3.5 text-cyan-400" />
         <span className="font-bold text-gray-200">HWANGE TACTICAL MAP</span>
         <span className="text-gray-500">|</span>
-        <span className="text-cyan-400">SAT FEED GPS ACTIVE</span>
+        <span className="text-amber-400">SIMULATED GPS (PATROL ORBIT)</span>
       </div>
 
       {/* Map Container */}

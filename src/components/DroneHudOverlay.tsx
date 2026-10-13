@@ -97,7 +97,7 @@ export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
         <div className="flex items-center gap-3 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded border border-cyan-500/30 text-cyan-300">
           <div className="flex items-center gap-1">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-emerald-400 font-bold">RTK {telemetry.rtkStatus}</span>
+            <span className="text-emerald-400 font-bold">RTK {telemetry.rtkStatus} (SIM)</span>
           </div>
           <span className="text-gray-500">|</span>
           <span>SATS: {telemetry.satelliteCount}</span>
