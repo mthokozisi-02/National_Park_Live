@@ -3,6 +3,7 @@
 import React from 'react';
 import { DroneTelemetry, WildlifeDetection } from '@/types/safari';
 import { Crosshair, ShieldCheck, Eye, Sparkles } from 'lucide-react';
+import { formatCoordinate } from '@/utils/coordinates';
 
 interface DroneHudOverlayProps {
   telemetry: DroneTelemetry;
@@ -19,15 +20,7 @@ export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
   showThermal,
   onSelectAnimal,
 }) => {
-  // Format coordinates to standard aviation degrees/minutes/seconds
-  const formatCoord = (deg: number, isLat: boolean) => {
-    const dir = isLat ? (deg >= 0 ? 'N' : 'S') : deg >= 0 ? 'E' : 'W';
-    const abs = Math.abs(deg);
-    const d = Math.floor(abs);
-    const m = Math.floor((abs - d) * 60);
-    const s = ((abs - d - m / 60) * 3600).toFixed(1);
-    return `${d}°${m}'${s}"${dir}`;
-  };
+
 
   // Generate compass heading tape ticks
   const compassTicks = [-40, -30, -20, -10, 0, 10, 20, 30, 40];
@@ -235,7 +228,7 @@ export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
         <div className="flex items-center gap-3 bg-black/70 backdrop-blur-md px-3 py-1.5 rounded border border-cyan-500/30">
           <span className="text-gray-400">GPS:</span>
           <span className="text-white font-bold">
-            {formatCoord(telemetry.latitude, true)} {formatCoord(telemetry.longitude, false)}
+            {formatCoordinate(telemetry.latitude, true)} {formatCoordinate(telemetry.longitude, false)}
           </span>
           <span className="text-gray-500">|</span>
           <span className="text-gray-400">DIST HOME:</span>

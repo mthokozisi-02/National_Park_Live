@@ -175,6 +175,8 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
   };
 
   // HIGH-PRIORITY FIX: Real Snapshot Capture with Telemetry Watermark & File Download
+  type SnapshotSource = 'video' | 'procedural' | 'failed';
+
   const handleTakeSnapshot = useCallback(() => {
     const captureWidth = 1920;
     const captureHeight = 1080;
@@ -189,36 +191,40 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
       return;
     }
 
-    let frameCaptured = false;
+    let snapshotSource: SnapshotSource = 'failed';
 
-    // 1. Draw video or canvas fallback
+    // 1. Attempt to draw the live video frame
     if (!videoError && videoRef.current && videoRef.current.readyState >= 2) {
       try {
         ctx.drawImage(videoRef.current, 0, 0, captureWidth, captureHeight);
-        frameCaptured = true;
-      } catch (err) {
-        // Cross-Origin security may taint canvas if CORS headers are missing on sample CDN
-        frameCaptured = false;
+        snapshotSource = 'video';
+      } catch {
+        // Cross-origin security may taint the canvas if CORS headers are absent
+        snapshotSource = 'failed';
       }
     }
 
-    if (!frameCaptured && canvasRef.current) {
+    // 2. Fall back to the procedural canvas if the video could not be drawn
+    if (snapshotSource === 'failed' && canvasRef.current) {
       try {
         ctx.drawImage(canvasRef.current, 0, 0, captureWidth, captureHeight);
-        frameCaptured = true;
-      } catch {}
+        snapshotSource = 'procedural';
+      } catch {
+        snapshotSource = 'failed';
+      }
     }
 
-    // If both failed or cross-origin blocked, render a styled tactical capture slate
-    if (!frameCaptured) {
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(0, 0, captureWidth, captureHeight);
-      ctx.strokeStyle = '#0284c7';
-      ctx.lineWidth = 4;
-      ctx.strokeRect(20, 20, captureWidth - 40, captureHeight - 40);
+    // 3. Abort export — neither video nor procedural canvas was captured
+    if (snapshotSource === 'failed') {
+      setSnapshotStatus({
+        message: 'Snapshot failed: no video frame or canvas available',
+        isError: true,
+      });
+      setTimeout(() => setSnapshotStatus(null), 4000);
+      return;
     }
 
-    // 2. Render Tactical Telemetry Watermark Overlay
+    // 4. Render Tactical Telemetry Watermark Overlay
     // Top banner
     ctx.fillStyle = 'rgba(7, 13, 19, 0.85)';
     ctx.fillRect(40, 40, 720, 160);
@@ -235,6 +241,14 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
     ctx.fillText(`DRONE ID:  ${telemetry.droneId} (${telemetry.droneModel})`, 60, 115);
     ctx.fillText(`GPS FIX:   ${telemetry.latitude.toFixed(6)}°, ${telemetry.longitude.toFixed(6)}° (RTK ${telemetry.rtkStatus})`, 60, 145);
     ctx.fillText(`ALTITUDE:  ${telemetry.altitude.toFixed(1)}m AGL | AIRSPEED: ${telemetry.speed.toFixed(1)} km/h | HDG: ${Math.round(telemetry.heading)}°`, 60, 175);
+
+    // Source label (bottom-left, small)
+    const sourceLabel = snapshotSource === 'video' ? 'SOURCE: LIVE VIDEO FRAME' : 'SOURCE: PROCEDURAL CANVAS';
+    ctx.fillStyle = 'rgba(7, 13, 19, 0.7)';
+    ctx.fillRect(40, captureHeight - 60, 420, 40);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '14px monospace';
+    ctx.fillText(sourceLabel, 55, captureHeight - 34);
 
     // Bottom Watermark Timestamp
     const nowIso = new Date().toISOString();
@@ -258,7 +272,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
     ctx.lineTo(captureWidth / 2, captureHeight / 2 + 40);
     ctx.stroke();
 
-    // 3. Trigger Real Browser Download
+    // 5. Trigger Real Browser Download
     try {
       captureCanvas.toBlob((blob) => {
         if (!blob) {
@@ -275,10 +289,11 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        // Defer revocation so the browser has time to consume the object URL
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
 
         setSnapshotStatus({
-          message: `Saved snapshot file: ${filename}`,
+          message: `Saved ${snapshotSource === 'video' ? 'video frame' : 'procedural frame'}: ${filename}`,
           isError: false,
         });
         setTimeout(() => setSnapshotStatus(null), 4000);
@@ -420,7 +435,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
             <span className="text-gray-600">•</span>
             <span className="text-cyan-400">{currentStream.bitrateMbps} Mbps</span>
             <span className="text-gray-600">•</span>
-            <span className="text-emerald-400">{simulatedPing}ms WebRTC</span>
+            <span className="text-amber-400">DEMO LATENCY: {simulatedPing}ms</span>
           </div>
 
           {/* Quick Stream Dropdown */}

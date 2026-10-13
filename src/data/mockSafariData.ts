@@ -1,4 +1,4 @@
-import { DroneTelemetry, SafariCameraStream, WildlifeDetection, MapFeature } from '@/types/safari';
+import type { DroneTelemetry, SafariCameraStream, WildlifeDetection, MapFeature } from '../types/safari';
 
 export const INITIAL_TELEMETRY: DroneTelemetry = {
   droneId: 'HWANGE-SCOUT-01',

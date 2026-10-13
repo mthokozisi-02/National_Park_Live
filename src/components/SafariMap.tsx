@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { DroneTelemetry, MapFeature } from '@/types/safari';
+import { addTrailPoint } from '@/utils/flightTrail';
 import { Compass } from 'lucide-react';
 
 interface SafariMapProps {
@@ -10,8 +11,6 @@ interface SafariMapProps {
   onSelectFeature?: (feature: MapFeature) => void;
 }
 
-const MAX_TRAIL_POINTS = 500;
-
 export const SafariMap: React.FC<SafariMapProps> = ({
   telemetry,
   mapFeatures,
@@ -19,6 +18,7 @@ export const SafariMap: React.FC<SafariMapProps> = ({
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
+  const leafletRef = useRef<any>(null);
   const droneMarkerRef = useRef<any>(null);
   const trailPolylineRef = useRef<any>(null);
   const trailPointsRef = useRef<[number, number][]>([]);
@@ -26,12 +26,13 @@ export const SafariMap: React.FC<SafariMapProps> = ({
   useEffect(() => {
     let isMounted = true;
 
-    // Dynamically import Leaflet on client side
+    // Dynamically import Leaflet on client side once during mount
     const initMap = async () => {
       if (typeof window === 'undefined' || !mapContainerRef.current) return;
       const L = (await import('leaflet')).default;
 
       if (!isMounted || mapInstanceRef.current) return;
+      leafletRef.current = L;
 
       const initialLat = telemetry.latitude;
       const initialLng = telemetry.longitude;
@@ -156,56 +157,58 @@ export const SafariMap: React.FC<SafariMapProps> = ({
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
+      droneMarkerRef.current = null;
+      trailPolylineRef.current = null;
+      leafletRef.current = null;
     };
   }, []);
 
   // Update drone marker position, heading, popup data, and bounded trail
   useEffect(() => {
-    if (!mapInstanceRef.current || !droneMarkerRef.current) return;
-    import('leaflet').then((L) => {
-      const latlng: [number, number] = [telemetry.latitude, telemetry.longitude];
-      droneMarkerRef.current.setLatLng(latlng);
+    const map = mapInstanceRef.current;
+    const marker = droneMarkerRef.current;
+    const L = leafletRef.current;
+    if (!map || !marker || !L) return;
 
-      // Re-create rotated icon
-      const updatedIcon = L.divIcon({
-        className: 'custom-drone-icon',
-        html: `
-          <div style="transform: rotate(${telemetry.heading}deg); transition: transform 0.3s ease; display: flex; align-items: center; justify-content: center; width: 42px; height: 42px;">
-            <div style="position: absolute; width: 44px; height: 44px; border-radius: 50%; border: 1.5px dashed rgba(6, 182, 212, 0.6);"></div>
-            <div style="background: rgba(14, 165, 233, 0.9); width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 16px #06b6d4; border: 2px solid #ffffff;">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
-              </svg>
-            </div>
+    const latlng: [number, number] = [telemetry.latitude, telemetry.longitude];
+    marker.setLatLng(latlng);
+
+    // Re-create rotated icon
+    const updatedIcon = L.divIcon({
+      className: 'custom-drone-icon',
+      html: `
+        <div style="transform: rotate(${telemetry.heading}deg); transition: transform 0.3s ease; display: flex; align-items: center; justify-content: center; width: 42px; height: 42px;">
+          <div style="position: absolute; width: 44px; height: 44px; border-radius: 50%; border: 1.5px dashed rgba(6, 182, 212, 0.6);"></div>
+          <div style="background: rgba(14, 165, 233, 0.9); width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 16px #06b6d4; border: 2px solid #ffffff;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
+            </svg>
           </div>
-        `,
-        iconSize: [42, 42],
-        iconAnchor: [21, 21],
-      });
-      droneMarkerRef.current.setIcon(updatedIcon);
-
-      // MEDIUM FINDING FIX: Refresh popup content dynamically so speed and altitude are never stale
-      droneMarkerRef.current.setPopupContent(`
-        <div style="font-family: monospace; font-size: 11px; color: #0f172a; padding: 4px;">
-          <strong>${telemetry.droneId}</strong><br/>
-          Alt: ${telemetry.altitude.toFixed(1)}m AGL<br/>
-          Speed: ${telemetry.speed.toFixed(1)} km/h<br/>
-          Heading: ${Math.round(telemetry.heading)}°
         </div>
-      `);
-
-      // MEDIUM FINDING FIX: Bound the breadcrumb trail to MAX_TRAIL_POINTS to avoid unbounded memory growth
-      if (trailPolylineRef.current) {
-        const last = trailPointsRef.current[trailPointsRef.current.length - 1];
-        if (!last || last[0] !== latlng[0] || last[1] !== latlng[1]) {
-          trailPointsRef.current.push(latlng);
-          if (trailPointsRef.current.length > MAX_TRAIL_POINTS) {
-            trailPointsRef.current.shift();
-          }
-          trailPolylineRef.current.setLatLngs(trailPointsRef.current);
-        }
-      }
+      `,
+      iconSize: [42, 42],
+      iconAnchor: [21, 21],
     });
+    marker.setIcon(updatedIcon);
+
+    // Refresh popup content dynamically so speed and altitude are never stale
+    marker.setPopupContent(`
+      <div style="font-family: monospace; font-size: 11px; color: #0f172a; padding: 4px;">
+        <strong>${telemetry.droneId}</strong><br/>
+        Alt: ${telemetry.altitude.toFixed(1)}m AGL<br/>
+        Speed: ${telemetry.speed.toFixed(1)} km/h<br/>
+        Heading: ${Math.round(telemetry.heading)}°
+      </div>
+    `);
+
+    // Bounded breadcrumb trail using production utility
+    if (trailPolylineRef.current) {
+      const updatedTrail = addTrailPoint(trailPointsRef.current, latlng);
+      if (updatedTrail !== trailPointsRef.current) {
+        trailPointsRef.current = updatedTrail;
+        trailPolylineRef.current.setLatLngs(updatedTrail);
+      }
+    }
   }, [telemetry.latitude, telemetry.longitude, telemetry.heading, telemetry.altitude, telemetry.speed, telemetry.droneId]);
 
   return (

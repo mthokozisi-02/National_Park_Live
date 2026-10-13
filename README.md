@@ -61,9 +61,9 @@ This repository demonstrates the interactive client-facing prototype (Phase 1), 
 
 ### Installation
 ```bash
-git clone https://github.com/your-org/safari-vision.git
-cd safari-vision
-npm install
+git clone https://github.com/mthokozisi-02/National_Park_Live.git
+cd National_Park_Live
+npm ci
 ```
 
 ### Running the Development Server
@@ -85,10 +85,24 @@ npm run start
 
 ---
 
+## ⚠️ Prototype Status & Integration Scope
+
+The current codebase is a **functional client-facing web and WebXR prototype**. To ensure transparency for developers, partners, and clients, the following capabilities are currently simulated and require future hardware and cloud integration in upcoming phases:
+
+| Component | Current Prototype State | Required Field/Production Integration |
+|---|---|---|
+| **Drone Video Feed** | Local high-definition wildlife video loops (Creative Commons) | Live video ingestion from DJI Matrice / field encoder via RTMP/SRT |
+| **Stream Delivery** | HTML5 video element with simulated latency indicator (`DEMO LATENCY`) | Low-latency WebRTC (WHEP) pipeline via media server (e.g. MediaMTX) |
+| **Drone Telemetry** | Simulated orbital trajectory around Hwange National Park with manual override | Live MAVLink or DJI Mobile SDK telemetry over WebSocket/MQTT broker |
+| **AI Wildlife Detection** | Mock bounding boxes & taxonomy encyclopedia | Real-time edge/cloud inference using YOLOv8 trained on African fauna |
+| **WebXR VR Immersion** | Three.js scene connected to WebXR session API (`renderer.xr`) | Verification on physical VR headsets (Meta Quest 3, Apple Vision Pro) over HTTPS |
+
+---
+
 ## 🗺️ Roadmap: Phased Path to Field Drone Integration
 
 * **Phase 1: Visual & Interactive Prototype (DELIVERED)**
-  * Dashboard layout, 4K wildlife streams, tactical HUD overlay, simulated live telemetry dials, interactive Leaflet GPS map, and WebXR Three.js 3D observation lounge.
+  * Dashboard layout, tactical HUD overlay, simulated live telemetry dials, interactive Leaflet GPS map with bounded trail history, and WebXR Three.js 3D observation lounge.
 * **Phase 2: Streaming Gateway & Field Telemetry Testing**
   * Deploy MediaMTX media server for WebRTC (WHEP) sub-second streaming.
   * Ingest live video via RTMP/SRT from DJI RC Pro / field encoder.

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { DroneTelemetry, SimulationMode } from '@/types/safari';
+import { clampAltitude, clampSpeed } from '@/utils/telemetry';
 import {
   BatteryCharging,
   Gauge,
@@ -34,7 +35,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
   // Simulator adjustment helpers for client interactive presentations
   const adjustAltitude = (delta: number) => {
     setTelemetry((prev) => {
-      const newAlt = Math.max(20, Math.min(300, prev.targetAltitude + delta));
+      const newAlt = clampAltitude(prev.targetAltitude, delta);
       return {
         ...prev,
         targetAltitude: newAlt,
@@ -46,7 +47,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
   const adjustSpeed = (delta: number) => {
     setTelemetry((prev) => ({
       ...prev,
-      speed: Math.max(0, Math.min(65, prev.speed + delta)),
+      speed: clampSpeed(prev.speed, delta),
     }));
   };
 

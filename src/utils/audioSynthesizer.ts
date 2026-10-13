@@ -5,6 +5,7 @@ class SavannaAudioEngine {
   private masterGain: GainNode | null = null;
   private windGain: GainNode | null = null;
   private windSource: AudioBufferSourceNode | null = null;
+  private filterNode: BiquadFilterNode | null = null;
   private intervalId: NodeJS.Timeout | null = null;
   private activeOscillators: Set<OscillatorNode> = new Set();
 
@@ -13,7 +14,8 @@ class SavannaAudioEngine {
       this.stop();
       return false;
     } else {
-      return this.start();
+      this.start();
+      return this.isPlaying;
     }
   }
 
@@ -24,10 +26,8 @@ class SavannaAudioEngine {
   public start(): boolean {
     if (typeof window === 'undefined') return false;
 
-    // Prevent duplicate start
-    if (this.isPlaying && this.ctx && this.ctx.state === 'running') {
-      return true;
-    }
+    // Early return guard: prevent duplicate initialization when engine is already running
+    if (this.isPlaying) return true;
 
     try {
       const AudioCtx =
@@ -62,15 +62,15 @@ class SavannaAudioEngine {
       this.windSource.buffer = noiseBuffer;
       this.windSource.loop = true;
 
-      const filter = this.ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(320, this.ctx.currentTime);
+      this.filterNode = this.ctx.createBiquadFilter();
+      this.filterNode.type = 'lowpass';
+      this.filterNode.frequency.setValueAtTime(320, this.ctx.currentTime);
 
       this.windGain = this.ctx.createGain();
       this.windGain.gain.setValueAtTime(0.2, this.ctx.currentTime);
 
-      this.windSource.connect(filter);
-      filter.connect(this.windGain);
+      this.windSource.connect(this.filterNode);
+      this.filterNode.connect(this.windGain);
       this.windGain.connect(this.masterGain);
       this.windSource.start(0);
 
@@ -140,6 +140,20 @@ class SavannaAudioEngine {
         this.windSource.disconnect();
       } catch {}
       this.windSource = null;
+    }
+
+    if (this.filterNode) {
+      try {
+        this.filterNode.disconnect();
+      } catch {}
+      this.filterNode = null;
+    }
+
+    if (this.windGain) {
+      try {
+        this.windGain.disconnect();
+      } catch {}
+      this.windGain = null;
     }
 
     if (this.masterGain) {
