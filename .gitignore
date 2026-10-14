@@ -57,3 +57,9 @@ __pycache__/
 *.onnx
 backend/output/
 backend/videos/
+training/runs/
+datasets/african_wildlife/images/
+datasets/african_wildlife/labels/
+datasets/african_wildlife/extracted_raw/
+*.zip
+*.tar.gz

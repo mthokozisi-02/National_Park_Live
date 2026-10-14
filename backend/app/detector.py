@@ -17,22 +17,40 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 MODEL_NAME = os.getenv("YOLO_MODEL_NAME", "yolov8n.pt")
 
-# Stage A: General-purpose detector mapping.
-# We map supported categories conservatively to avoid false scientific claims.
-# Categories not explicitly trained (e.g. wild lion vs domestic cat) are excluded
-# to prevent misidentifications in conservation applications.
-WILDLIFE_MAPPINGS: Dict[str, Dict[str, Optional[str]]] = {
+# Master African Wildlife Taxonomy for SafariVision
+# Covers the 8 core target species for fine-tuning plus fallback general classes
+AFRICAN_WILDLIFE_TAXONOMY: Dict[str, Dict[str, Optional[str]]] = {
     "elephant": {
         "common_name": "Elephant",
-        "scientific_name": None,
-    },
-    "zebra": {
-        "common_name": "Zebra",
-        "scientific_name": None,
+        "scientific_name": "Loxodonta africana",
     },
     "giraffe": {
         "common_name": "Giraffe",
-        "scientific_name": None,
+        "scientific_name": "Giraffa camelopardalis",
+    },
+    "zebra": {
+        "common_name": "Zebra",
+        "scientific_name": "Equus quagga",
+    },
+    "impala": {
+        "common_name": "Impala",
+        "scientific_name": "Aepyceros melampus",
+    },
+    "lion": {
+        "common_name": "Lion",
+        "scientific_name": "Panthera leo",
+    },
+    "leopard": {
+        "common_name": "Leopard",
+        "scientific_name": "Panthera pardus",
+    },
+    "african_buffalo": {
+        "common_name": "African Buffalo",
+        "scientific_name": "Syncerus caffer",
+    },
+    "rhinoceros": {
+        "common_name": "Rhinoceros",
+        "scientific_name": "Ceratotherium simum",
     },
     "bird": {
         "common_name": "Bird",
@@ -40,7 +58,25 @@ WILDLIFE_MAPPINGS: Dict[str, Dict[str, Optional[str]]] = {
     },
 }
 
-TARGET_CLASSES = set(WILDLIFE_MAPPINGS.keys())
+# Stage A conservative COCO target classes (when using base pretrained yolov8n.pt)
+STAGE_A_COCO_CLASSES = {"elephant", "zebra", "giraffe", "bird"}
+
+# Stage B 8-class African wildlife fine-tuning target classes
+STAGE_B_WILDLIFE_CLASSES = {
+    "elephant",
+    "giraffe",
+    "zebra",
+    "impala",
+    "lion",
+    "leopard",
+    "african_buffalo",
+    "rhinoceros",
+}
+
+# For backward compatibility with imports
+WILDLIFE_MAPPINGS = AFRICAN_WILDLIFE_TAXONOMY
+TARGET_CLASSES = STAGE_A_COCO_CLASSES
+
 
 class ModelContainer:
     def __init__(self, model_name: str):
@@ -50,6 +86,8 @@ class ModelContainer:
         self.device = "cpu"
         self.load_error: Optional[str] = None
         self.wildlife_class_ids: List[int] = []
+        self.target_class_names: set = set()
+        self.is_custom_wildlife_model: bool = False
         self._initialize()
 
     def _initialize(self):
@@ -60,13 +98,30 @@ class ModelContainer:
             self.is_loaded = True
             self.load_error = None
 
-            # Dynamically resolve target class indices from actual model names
+            # Detect whether loaded model is a custom African wildlife model or generic COCO
+            model_class_names = set()
+            if hasattr(self.model, "names") and isinstance(self.model.names, dict):
+                model_class_names = {str(name).lower() for name in self.model.names.values()}
+
+            # If model contains classes specific to African wildlife dataset (e.g. impala or african_buffalo)
+            if "impala" in model_class_names or "african_buffalo" in model_class_names:
+                self.is_custom_wildlife_model = True
+                self.target_class_names = STAGE_B_WILDLIFE_CLASSES.intersection(model_class_names)
+            else:
+                self.is_custom_wildlife_model = False
+                self.target_class_names = STAGE_A_COCO_CLASSES.intersection(model_class_names)
+
+            # Resolve active class IDs
             if hasattr(self.model, "names") and isinstance(self.model.names, dict):
                 self.wildlife_class_ids = [
                     cls_id for cls_id, cls_name in self.model.names.items()
-                    if str(cls_name).lower() in TARGET_CLASSES
+                    if str(cls_name).lower() in self.target_class_names
                 ]
-            logger.info(f"Model loaded successfully. Wildlife class IDs: {self.wildlife_class_ids}")
+
+            logger.info(
+                f"Model initialized. Custom wildlife model: {self.is_custom_wildlife_model}. "
+                f"Active classes: {self.target_class_names} (IDs: {self.wildlife_class_ids})"
+            )
         except Exception as e:
             logger.error(f"Failed to load YOLO model {self.model_name}: {e}")
             self.is_loaded = False
@@ -78,12 +133,13 @@ class ModelContainer:
             "model_loaded": self.is_loaded,
             "model": self.model_name,
             "device": self.device if self.is_loaded else None,
-            "supported_classes": list(TARGET_CLASSES),
+            "supported_classes": sorted(list(self.target_class_names)),
+            "is_custom_wildlife_model": self.is_custom_wildlife_model,
             "error": self.load_error
         }
 
+
 model_container = ModelContainer(MODEL_NAME)
-# For backward compatibility if imported directly
 model = model_container.model
 
 
@@ -131,6 +187,7 @@ def detect_animals(
     sample_detections: List[Dict[str, Any]] = []
 
     active_classes = model_container.wildlife_class_ids if model_container.wildlife_class_ids else None
+    target_names = model_container.target_class_names
 
     try:
         while True:
@@ -166,10 +223,13 @@ def detect_animals(
                     confidence = float(box.conf[0].item())
                     class_name = results.names.get(class_id, "unknown").lower()
 
-                    if class_name in TARGET_CLASSES:
+                    if class_name in target_names:
                         total_frame_detections += 1
-                        mapping = WILDLIFE_MAPPINGS[class_name]
-                        species_name = mapping["common_name"] or class_name.capitalize()
+                        mapping = AFRICAN_WILDLIFE_TAXONOMY.get(class_name, {
+                            "common_name": class_name.replace("_", " ").title(),
+                            "scientific_name": None
+                        })
+                        species_name = mapping["common_name"] or class_name.replace("_", " ").title()
                         species_frame_counts[species_name] = species_frame_counts.get(species_name, 0) + 1
 
                         # Extract normalized bounding box [x_center, y_center, w, h]

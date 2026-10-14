@@ -33,14 +33,21 @@ class TestSafariVisionBackend(unittest.TestCase):
 
     def test_species_mappings_conservative(self):
         """Verify no unverified wildlife species mappings (e.g. cat -> lion, dog -> wild dog)."""
-        self.assertNotIn("cat", TARGET_CLASSES)
-        self.assertNotIn("dog", TARGET_CLASSES)
-        self.assertNotIn("cow", TARGET_CLASSES)
-        self.assertNotIn("sheep", TARGET_CLASSES)
+        active_classes = model_container.target_class_names
+        self.assertNotIn("cat", active_classes)
+        self.assertNotIn("dog", active_classes)
+        self.assertNotIn("cow", active_classes)
+        self.assertNotIn("sheep", active_classes)
 
-        for species_key, meta in WILDLIFE_MAPPINGS.items():
-            self.assertIn(species_key, ["elephant", "zebra", "giraffe", "bird"])
-            self.assertIsNone(meta["scientific_name"])
+        # Under default COCO yolov8n, only conservative Stage A classes are active
+        for cls in active_classes:
+            self.assertIn(cls, ["elephant", "zebra", "giraffe", "bird"])
+
+        # African wildlife taxonomy covers the 8 target species
+        target_8_species = ["elephant", "giraffe", "zebra", "impala", "lion", "leopard", "african_buffalo", "rhinoceros"]
+        for species in target_8_species:
+            self.assertIn(species, WILDLIFE_MAPPINGS)
+            self.assertIsNotNone(WILDLIFE_MAPPINGS[species]["common_name"])
 
     def test_list_videos(self):
         """Verify video listing returns a list with allowed extensions."""

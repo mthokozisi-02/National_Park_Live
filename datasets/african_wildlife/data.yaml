@@ -1,0 +1,18 @@
+# SafariVision - African Wildlife Dataset Configuration
+# Standard Ultralytics YOLO dataset specification for 8 core African wildlife species
+
+path: C:/source/National_Park_Live/datasets/african_wildlife
+train: images/train
+val: images/val
+test: images/test
+
+# Proposed 8 Target Species
+names:
+  0: elephant
+  1: giraffe
+  2: zebra
+  3: impala
+  4: lion
+  5: leopard
+  6: african_buffalo
+  7: rhinoceros
