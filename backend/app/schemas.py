@@ -11,7 +11,7 @@ class DetectionItem(BaseModel):
     id: str
     frame: int
     timestamp_sec: float
-    species: str
+    species: Optional[str] = Field(None, description="Scientific or model species name if known")
     common_name: str
     confidence: float
     box: BoundingBox
@@ -22,14 +22,19 @@ class DetectionResponse(BaseModel):
     frames_processed: int
     fps: float
     duration_seconds: float
-    detections: int
-    species_counts: Dict[str, int]
+    total_frame_detections: int = Field(..., description="Total animal bounding box detections across all evaluated frames")
+    detections: int = Field(..., description="Alias for total_frame_detections for backward compatibility")
+    species_frame_counts: Dict[str, int] = Field(default_factory=dict, description="Detections per species across frames")
+    species_counts: Dict[str, int] = Field(default_factory=dict, description="Alias for species_frame_counts")
     output_video: str
     output_url: str
-    sample_detections: List[DetectionItem] = []
+    sample_detections: List[DetectionItem] = Field(default_factory=list)
 
 class HealthResponse(BaseModel):
     status: str
     service: str
+    model_loaded: bool
     model: str
-    device: str
+    device: Optional[str] = None
+    supported_classes: List[str] = Field(default_factory=list)
+    error: Optional[str] = None

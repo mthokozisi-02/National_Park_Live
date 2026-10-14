@@ -13,7 +13,7 @@ export interface ModelDetectionItem {
   id: string;
   frame: number;
   timestamp_sec: number;
-  species: string;
+  species?: string | null;
   common_name: string;
   confidence: number;
   box: ModelBoundingBox;
@@ -25,16 +25,21 @@ export interface ModelDetectionResponse {
   frames_processed: number;
   fps: number;
   duration_seconds: number;
-  detections: number;
-  species_counts: Record<string, number>;
+  total_frame_detections: number;
+  detections: number; // backward compatibility alias
+  species_frame_counts: Record<string, number>;
+  species_counts: Record<string, number>; // backward compatibility alias
   output_video: string;
   output_url: string;
   sample_detections: ModelDetectionItem[];
 }
 
 export interface BackendHealth {
-  status: string;
+  status: 'ok' | 'degraded';
   service: string;
+  model_loaded: boolean;
   model: string;
-  device: string;
+  device?: string | null;
+  supported_classes: string[];
+  error?: string | null;
 }

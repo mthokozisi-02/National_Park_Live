@@ -188,10 +188,15 @@ export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
       {/* AI Wildlife Vision Overlays (Bounding Boxes) */}
       {showAiVision &&
         wildlifeDetections.map((detection) => {
-          const leftPct = detection.box.x <= 1 ? detection.box.x * 100 : detection.box.x;
-          const topPct = detection.box.y <= 1 ? detection.box.y * 100 : detection.box.y;
-          const widthPct = detection.box.width <= 1 ? detection.box.width * 100 : detection.box.width;
-          const heightPct = detection.box.height <= 1 ? detection.box.height * 100 : detection.box.height;
+          const rawLeft = detection.box.x <= 1 ? detection.box.x * 100 : detection.box.x;
+          const rawTop = detection.box.y <= 1 ? detection.box.y * 100 : detection.box.y;
+          const rawWidth = detection.box.width <= 1 ? detection.box.width * 100 : detection.box.width;
+          const rawHeight = detection.box.height <= 1 ? detection.box.height * 100 : detection.box.height;
+
+          const leftPct = Math.min(100, Math.max(0, rawLeft));
+          const topPct = Math.min(100, Math.max(0, rawTop));
+          const widthPct = Math.min(100 - leftPct, Math.max(0, rawWidth));
+          const heightPct = Math.min(100 - topPct, Math.max(0, rawHeight));
 
           return (
             <div
