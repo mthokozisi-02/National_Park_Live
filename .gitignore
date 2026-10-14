@@ -39,3 +39,20 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Python & virtual environments
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyd
+*.egg-info/
+.pytest_cache/
+
+# Machine learning model weights & processed videos
+*.pt
+*.pth
+*.onnx
+backend/output/
+backend/videos/

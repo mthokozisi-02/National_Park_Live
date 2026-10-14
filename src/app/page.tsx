@@ -30,10 +30,19 @@ export default function SafariVisionApp() {
   const [simulationMode, setSimulationMode] = useState<SimulationMode>('automatic');
   const [currentStream, setCurrentStream] = useState<SafariCameraStream>(CAMERA_STREAMS[0]);
   const [selectedAnimal, setSelectedAnimal] = useState<WildlifeDetection | null>(null);
+  const [wildlifeDetections, setWildlifeDetections] = useState<WildlifeDetection[]>(MOCK_WILDLIFE_CATALOG);
   const [showAiVision, setShowAiVision] = useState<boolean>(true);
   const [showThermal, setShowThermal] = useState<boolean>(false);
   const [isVrActive, setIsVrActive] = useState<boolean>(false);
   const [isArchModalOpen, setIsArchModalOpen] = useState<boolean>(false);
+
+  const handleModelDetectionsLoaded = (modelDetections: WildlifeDetection[]) => {
+    setWildlifeDetections(modelDetections);
+    setCurrentStream((prev) => ({
+      ...prev,
+      detectedWildlife: modelDetections,
+    }));
+  };
 
   // Background Drone Flight Simulation
   useEffect(() => {
@@ -183,9 +192,11 @@ export default function SafariVisionApp() {
             />
 
             <WildlifePanel
-              detections={MOCK_WILDLIFE_CATALOG}
+              detections={wildlifeDetections}
               selectedAnimal={selectedAnimal}
               onSelectAnimal={setSelectedAnimal}
+              onModelDetectionsLoaded={handleModelDetectionsLoaded}
+              currentVideoName={currentStream.videoUrl.split('/').pop()}
             />
           </div>
         </div>

@@ -187,23 +187,29 @@ export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
 
       {/* AI Wildlife Vision Overlays (Bounding Boxes) */}
       {showAiVision &&
-        wildlifeDetections.map((detection) => (
-          <div
-            key={detection.id}
-            style={{
-              left: `${detection.box.x}%`,
-              top: `${detection.box.y}%`,
-              width: `${detection.box.width}%`,
-              height: `${detection.box.height}%`,
-            }}
-            className="absolute border border-amber-400/80 bg-amber-500/10 rounded transition-all duration-300 pointer-events-auto cursor-pointer group hover:border-emerald-400 hover:bg-emerald-500/20 shadow-[0_0_15px_rgba(245,158,11,0.25)]"
-            onClick={() => onSelectAnimal(detection)}
-          >
-            {/* Corner Brackets */}
-            <div className="absolute -top-1 -left-1 w-2.5 h-2.5 border-t-2 border-l-2 border-amber-400 group-hover:border-emerald-400" />
-            <div className="absolute -top-1 -right-1 w-2.5 h-2.5 border-t-2 border-r-2 border-amber-400 group-hover:border-emerald-400" />
-            <div className="absolute -bottom-1 -left-1 w-2.5 h-2.5 border-b-2 border-l-2 border-amber-400 group-hover:border-emerald-400" />
-            <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 border-b-2 border-r-2 border-amber-400 group-hover:border-emerald-400" />
+        wildlifeDetections.map((detection) => {
+          const leftPct = detection.box.x <= 1 ? detection.box.x * 100 : detection.box.x;
+          const topPct = detection.box.y <= 1 ? detection.box.y * 100 : detection.box.y;
+          const widthPct = detection.box.width <= 1 ? detection.box.width * 100 : detection.box.width;
+          const heightPct = detection.box.height <= 1 ? detection.box.height * 100 : detection.box.height;
+
+          return (
+            <div
+              key={detection.id}
+              style={{
+                left: `${leftPct}%`,
+                top: `${topPct}%`,
+                width: `${widthPct}%`,
+                height: `${heightPct}%`,
+              }}
+              className="absolute border border-amber-400/80 bg-amber-500/10 rounded transition-all duration-300 pointer-events-auto cursor-pointer group hover:border-emerald-400 hover:bg-emerald-500/20 shadow-[0_0_15px_rgba(245,158,11,0.25)]"
+              onClick={() => onSelectAnimal(detection)}
+            >
+              {/* Corner Brackets */}
+              <div className="absolute -top-1 -left-1 w-2.5 h-2.5 border-t-2 border-l-2 border-amber-400 group-hover:border-emerald-400" />
+              <div className="absolute -top-1 -right-1 w-2.5 h-2.5 border-t-2 border-r-2 border-amber-400 group-hover:border-emerald-400" />
+              <div className="absolute -bottom-1 -left-1 w-2.5 h-2.5 border-b-2 border-l-2 border-amber-400 group-hover:border-emerald-400" />
+              <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 border-b-2 border-r-2 border-amber-400 group-hover:border-emerald-400" />
 
             {/* Floating Detection Tag */}
             <div className="absolute -top-7 left-0 flex items-center gap-1.5 bg-black/85 backdrop-blur-md px-2 py-0.5 rounded border border-amber-400/80 text-[11px] font-mono whitespace-nowrap text-amber-300 group-hover:border-emerald-400 group-hover:text-emerald-300 transition-colors">
@@ -221,7 +227,8 @@ export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
               INSPECT BIO
             </div>
           </div>
-        ))}
+        );
+      })}
 
       {/* Bottom Bar: GPS Coordinates, RTH distance, and Environmental Telemetry */}
       <div className="absolute bottom-4 left-6 right-6 flex items-center justify-between text-xs font-mono text-cyan-300">
