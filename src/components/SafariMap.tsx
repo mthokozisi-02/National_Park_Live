@@ -79,18 +79,18 @@ export const SafariMap: React.FC<SafariMapProps> = ({ telemetry }) => {
 
       mapInstanceRef.current = map;
 
-      // Create Google Maps style pulsing blue dot icon
+      // Create Google Maps style solid blue dot icon with soft halo
       const createBlueDotIcon = () => {
         return L.divIcon({
           className: 'custom-user-location-marker',
           html: `
-            <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;">
-              <div style="position: absolute; width: 32px; height: 32px; border-radius: 50%; background: rgba(66, 133, 244, 0.35); animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
-              <div style="position: relative; width: 16px; height: 16px; border-radius: 50%; background: #1a73e8; border: 3px solid #ffffff; box-shadow: 0 1px 4px rgba(0,0,0,0.4);"></div>
+            <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;">
+              <div style="position: absolute; width: 28px; height: 28px; border-radius: 50%; background: rgba(66, 133, 244, 0.25); border: 1px solid rgba(66, 133, 244, 0.5);"></div>
+              <div style="position: relative; width: 14px; height: 14px; border-radius: 50%; background: #1a73e8; border: 2.5px solid #ffffff; box-shadow: 0 1px 5px rgba(0,0,0,0.45);"></div>
             </div>
           `,
-          iconSize: [32, 32],
-          iconAnchor: [16, 16],
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
         });
       };
 
@@ -169,7 +169,7 @@ export const SafariMap: React.FC<SafariMapProps> = ({ telemetry }) => {
       userAccuracyCircleRef.current = null;
       leafletRef.current = null;
     };
-  }, [telemetry]);
+  }, []);
 
   // Center map on user location
   const handleCenterOnUser = () => {
