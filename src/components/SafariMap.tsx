@@ -1,32 +1,36 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { DroneTelemetry, MapFeature } from '@/types/safari';
-import { addTrailPoint } from '@/utils/flightTrail';
-import { Compass } from 'lucide-react';
+import { MapPin, Navigation, Layers, Satellite, Map as MapIcon, Loader2 } from 'lucide-react';
 
 interface SafariMapProps {
-  telemetry: DroneTelemetry;
-  mapFeatures: MapFeature[];
+  telemetry?: DroneTelemetry;
+  mapFeatures?: MapFeature[];
   onSelectFeature?: (feature: MapFeature) => void;
 }
 
-export const SafariMap: React.FC<SafariMapProps> = ({
-  telemetry,
-  mapFeatures,
-  onSelectFeature,
-}) => {
+export const SafariMap: React.FC<SafariMapProps> = ({ telemetry }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const leafletRef = useRef<any>(null);
-  const droneMarkerRef = useRef<any>(null);
-  const trailPolylineRef = useRef<any>(null);
-  const trailPointsRef = useRef<[number, number][]>([]);
+  const userMarkerRef = useRef<any>(null);
+  const userAccuracyCircleRef = useRef<any>(null);
+
+  const [userLocation, setUserLocation] = useState<{
+    lat: number;
+    lng: number;
+    accuracy?: number;
+  } | null>(null);
+  const [locationStatus, setLocationStatus] = useState<string>('Detecting your location...');
+  const [mapType, setMapType] = useState<'streets' | 'satellite'>('streets');
+  const [isLocating, setIsLocating] = useState<boolean>(true);
+
+  const tileLayersRef = useRef<{ streets?: any; satellite?: any }>({});
 
   useEffect(() => {
     let isMounted = true;
 
-    // Dynamically import Leaflet on client side once during mount
     const initMap = async () => {
       if (typeof window === 'undefined' || !mapContainerRef.current) return;
       const L = (await import('leaflet')).default;
@@ -34,119 +38,123 @@ export const SafariMap: React.FC<SafariMapProps> = ({
       if (!isMounted || mapInstanceRef.current) return;
       leafletRef.current = L;
 
-      const initialLat = telemetry.latitude;
-      const initialLng = telemetry.longitude;
+      // Default fallback coordinates (will update immediately to user location)
+      const defaultLat = telemetry?.latitude ?? -18.6292;
+      const defaultLng = telemetry?.longitude ?? 26.9501;
 
       const map = L.map(mapContainerRef.current, {
-        center: [initialLat, initialLng],
-        zoom: 14,
+        center: [defaultLat, defaultLng],
+        zoom: 15,
         zoomControl: false,
       });
 
       L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-      // Topographic / Dark Matter CartoDB tiles
-      L.tileLayer(
-        'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+      // Google Maps Standard Roadmap Tiles
+      const googleStreets = L.tileLayer(
+        'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
         {
-          attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-          maxZoom: 19,
-          subdomains: 'abcd',
+          attribution: '&copy; Google Maps',
+          maxZoom: 20,
+          subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
         }
-      ).addTo(map);
+      );
+
+      // Google Maps Satellite / Hybrid Tiles
+      const googleSatellite = L.tileLayer(
+        'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+        {
+          attribution: '&copy; Google Maps Satellite',
+          maxZoom: 20,
+          subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        }
+      );
+
+      googleStreets.addTo(map);
+
+      tileLayersRef.current = {
+        streets: googleStreets,
+        satellite: googleSatellite,
+      };
 
       mapInstanceRef.current = map;
 
-      // Custom Drone Marker Icon with Heading Rotation
-      const createDroneIcon = (heading: number) => {
+      // Create Google Maps style pulsing blue dot icon
+      const createBlueDotIcon = () => {
         return L.divIcon({
-          className: 'custom-drone-icon',
+          className: 'custom-user-location-marker',
           html: `
-            <div style="transform: rotate(${heading}deg); transition: transform 0.3s ease; display: flex; align-items: center; justify-content: center; width: 42px; height: 42px;">
-              <div style="position: absolute; width: 44px; height: 44px; border-radius: 50%; border: 1.5px dashed rgba(6, 182, 212, 0.6);"></div>
-              <div style="background: rgba(14, 165, 233, 0.9); width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 16px #06b6d4; border: 2px solid #ffffff;">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
-                </svg>
-              </div>
-            </div>
-          `,
-          iconSize: [42, 42],
-          iconAnchor: [21, 21],
-        });
-      };
-
-      // Add Drone Marker
-      const droneMarker = L.marker([telemetry.latitude, telemetry.longitude], {
-        icon: createDroneIcon(telemetry.heading),
-      })
-        .addTo(map)
-        .bindPopup(`
-          <div id="drone-popup-content" style="font-family: monospace; font-size: 11px; color: #0f172a; padding: 4px;">
-            <strong>${telemetry.droneId}</strong><br/>
-            Alt: ${telemetry.altitude.toFixed(1)}m AGL<br/>
-            Speed: ${telemetry.speed.toFixed(1)} km/h<br/>
-            Heading: ${Math.round(telemetry.heading)}°
-          </div>
-        `);
-      droneMarkerRef.current = droneMarker;
-
-      // Add Trail Polyline
-      trailPointsRef.current = [[telemetry.latitude, telemetry.longitude]];
-      const trail = L.polyline(trailPointsRef.current, {
-        color: '#06b6d4',
-        weight: 3,
-        dashArray: '6, 8',
-        opacity: 0.8,
-      }).addTo(map);
-      trailPolylineRef.current = trail;
-
-      // Add Wildlife & Point-of-Interest Markers
-      mapFeatures.forEach((feat) => {
-        if (feat.type === 'drone') return;
-
-        let iconColor = '#f59e0b';
-        let badgeSymbol = '🐾';
-        if (feat.icon === 'elephant') {
-          badgeSymbol = '🐘';
-          iconColor = '#38bdf8';
-        } else if (feat.icon === 'giraffe') {
-          badgeSymbol = '🦒';
-          iconColor = '#fbbf24';
-        } else if (feat.icon === 'lion') {
-          badgeSymbol = '🦁';
-          iconColor = '#ef4444';
-        } else if (feat.icon === 'waterhole') {
-          badgeSymbol = '💧';
-          iconColor = '#3b82f6';
-        } else if (feat.icon === 'ranger') {
-          badgeSymbol = '🛡️';
-          iconColor = '#10b981';
-        }
-
-        const featureIcon = L.divIcon({
-          className: 'custom-feature-icon',
-          html: `
-            <div style="background: ${iconColor}; color: #ffffff; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px ${iconColor}; border: 2px solid #ffffff; font-size: 15px; cursor: pointer;">
-              ${badgeSymbol}
+            <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;">
+              <div style="position: absolute; width: 32px; height: 32px; border-radius: 50%; background: rgba(66, 133, 244, 0.35); animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
+              <div style="position: relative; width: 16px; height: 16px; border-radius: 50%; background: #1a73e8; border: 3px solid #ffffff; box-shadow: 0 1px 4px rgba(0,0,0,0.4);"></div>
             </div>
           `,
           iconSize: [32, 32],
           iconAnchor: [16, 16],
         });
+      };
 
-        const marker = L.marker(feat.coordinates, { icon: featureIcon }).addTo(map);
-        marker.bindPopup(`
-          <div style="font-family: monospace; font-size: 12px; color: #0f172a; padding: 4px;">
-            <strong style="color: #0369a1;">${feat.title}</strong><br/>
-            <span style="color: #64748b;">${feat.subtitle || ''}</span>
-          </div>
-        `);
+      // Request real user geolocation from browser
+      if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            if (!isMounted) return;
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            const acc = pos.coords.accuracy;
 
-        marker.on('click', () => {
-          if (onSelectFeature) onSelectFeature(feat);
-        });
-      });
+            setUserLocation({ lat, lng, accuracy: acc });
+            setLocationStatus('Location found');
+            setIsLocating(false);
+
+            map.setView([lat, lng], 16);
+
+            // Add accuracy circle
+            if (acc) {
+              const circle = L.circle([lat, lng], {
+                radius: acc,
+                color: '#1a73e8',
+                weight: 1,
+                fillColor: '#4285f4',
+                fillOpacity: 0.15,
+              }).addTo(map);
+              userAccuracyCircleRef.current = circle;
+            }
+
+            // Add User Blue Dot Marker
+            const marker = L.marker([lat, lng], {
+              icon: createBlueDotIcon(),
+            })
+              .addTo(map)
+              .bindPopup(`
+                <div style="font-family: sans-serif; font-size: 12px; color: #1e293b; padding: 4px; text-align: center;">
+                  <strong style="color: #1a73e8;">Your Location</strong><br/>
+                  ${lat.toFixed(5)}°, ${lng.toFixed(5)}°<br/>
+                  <span style="font-size: 10px; color: #64748b;">Accurate to ~${Math.round(acc)}m</span>
+                </div>
+              `);
+            userMarkerRef.current = marker;
+          },
+          (err) => {
+            if (!isMounted) return;
+            console.warn('Geolocation error:', err.message);
+            setLocationStatus('GPS permission needed (showing default)');
+            setIsLocating(false);
+
+            // Place marker at default coords
+            const marker = L.marker([defaultLat, defaultLng], {
+              icon: createBlueDotIcon(),
+            })
+              .addTo(map)
+              .bindPopup('<strong>Map Center</strong>');
+            userMarkerRef.current = marker;
+          },
+          { enableHighAccuracy: true, timeout: 10000 }
+        );
+      } else {
+        setLocationStatus('Geolocation not supported by browser');
+        setIsLocating(false);
+      }
     };
 
     initMap();
@@ -157,91 +165,144 @@ export const SafariMap: React.FC<SafariMapProps> = ({
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
-      droneMarkerRef.current = null;
-      trailPolylineRef.current = null;
+      userMarkerRef.current = null;
+      userAccuracyCircleRef.current = null;
       leafletRef.current = null;
     };
-  }, []);
+  }, [telemetry]);
 
-  // Update drone marker position, heading, popup data, and bounded trail
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    const marker = droneMarkerRef.current;
-    const L = leafletRef.current;
-    if (!map || !marker || !L) return;
-
-    const latlng: [number, number] = [telemetry.latitude, telemetry.longitude];
-    marker.setLatLng(latlng);
-
-    // Re-create rotated icon
-    const updatedIcon = L.divIcon({
-      className: 'custom-drone-icon',
-      html: `
-        <div style="transform: rotate(${telemetry.heading}deg); transition: transform 0.3s ease; display: flex; align-items: center; justify-content: center; width: 42px; height: 42px;">
-          <div style="position: absolute; width: 44px; height: 44px; border-radius: 50%; border: 1.5px dashed rgba(6, 182, 212, 0.6);"></div>
-          <div style="background: rgba(14, 165, 233, 0.9); width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 16px #06b6d4; border: 2px solid #ffffff;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
-            </svg>
-          </div>
-        </div>
-      `,
-      iconSize: [42, 42],
-      iconAnchor: [21, 21],
-    });
-    marker.setIcon(updatedIcon);
-
-    // Refresh popup content dynamically so speed and altitude are never stale
-    marker.setPopupContent(`
-      <div style="font-family: monospace; font-size: 11px; color: #0f172a; padding: 4px;">
-        <strong>${telemetry.droneId}</strong><br/>
-        Alt: ${telemetry.altitude.toFixed(1)}m AGL<br/>
-        Speed: ${telemetry.speed.toFixed(1)} km/h<br/>
-        Heading: ${Math.round(telemetry.heading)}°
-      </div>
-    `);
-
-    // Bounded breadcrumb trail using production utility
-    if (trailPolylineRef.current) {
-      const updatedTrail = addTrailPoint(trailPointsRef.current, latlng);
-      if (updatedTrail !== trailPointsRef.current) {
-        trailPointsRef.current = updatedTrail;
-        trailPolylineRef.current.setLatLngs(updatedTrail);
+  // Center map on user location
+  const handleCenterOnUser = () => {
+    if (!mapInstanceRef.current) return;
+    if (userLocation) {
+      mapInstanceRef.current.setView([userLocation.lat, userLocation.lng], 16, {
+        animate: true,
+      });
+      if (userMarkerRef.current) {
+        userMarkerRef.current.openPopup();
       }
+    } else if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
+      setIsLocating(true);
+      setLocationStatus('Locating...');
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          setUserLocation({ lat, lng, accuracy: pos.coords.accuracy });
+          setLocationStatus('Location found');
+          setIsLocating(false);
+          mapInstanceRef.current?.setView([lat, lng], 16);
+        },
+        () => {
+          setLocationStatus('Unable to retrieve location');
+          setIsLocating(false);
+        }
+      );
     }
-  }, [telemetry.latitude, telemetry.longitude, telemetry.heading, telemetry.altitude, telemetry.speed, telemetry.droneId]);
+  };
+
+  // Toggle between Google Map view and Google Satellite view
+  const handleToggleMapType = (type: 'streets' | 'satellite') => {
+    const map = mapInstanceRef.current;
+    const layers = tileLayersRef.current;
+    if (!map || !layers.streets || !layers.satellite) return;
+
+    if (type === 'streets') {
+      map.removeLayer(layers.satellite);
+      layers.streets.addTo(map);
+    } else {
+      map.removeLayer(layers.streets);
+      layers.satellite.addTo(map);
+    }
+    setMapType(type);
+  };
 
   return (
-    <div className="relative w-full h-[360px] rounded-xl overflow-hidden border border-cyan-500/20 bg-slate-900 shadow-xl flex flex-col">
-      {/* Map Header Overlay */}
-      <div className="absolute top-3 left-3 z-10 bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-cyan-500/30 flex items-center gap-2 text-xs font-mono">
-        <Compass className="w-3.5 h-3.5 text-cyan-400" />
-        <span className="font-bold text-gray-200">HWANGE TACTICAL MAP</span>
-        <span className="text-gray-500">|</span>
-        <span className="text-amber-400">SIMULATED GPS (PATROL ORBIT)</span>
+    <div className="relative w-full h-[360px] rounded-xl overflow-hidden border border-slate-700 bg-slate-900 shadow-xl flex flex-col font-sans">
+      {/* Top Header Controls Overlay */}
+      <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between pointer-events-none">
+        {/* Title & Status */}
+        <div className="bg-white/95 text-slate-800 shadow-md px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium pointer-events-auto border border-slate-200">
+          <MapPin className="w-4 h-4 text-red-500 flex-shrink-0" />
+          <span className="font-semibold text-slate-900">Google Maps</span>
+          <span className="text-slate-300">|</span>
+          {isLocating ? (
+            <span className="text-blue-600 flex items-center gap-1 text-[11px]">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Locating you...
+            </span>
+          ) : userLocation ? (
+            <span className="text-emerald-700 flex items-center gap-1.5 text-[11px]">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              Your location found
+            </span>
+          ) : (
+            <span className="text-slate-500 text-[11px]">{locationStatus}</span>
+          )}
+        </div>
+
+        {/* Map View & Re-Center Buttons */}
+        <div className="flex items-center gap-2 pointer-events-auto">
+          {/* Map Layer Switcher: Street vs Satellite */}
+          <div className="bg-white/95 text-slate-700 shadow-md p-1 rounded-lg border border-slate-200 flex items-center gap-1 text-xs font-medium">
+            <button
+              onClick={() => handleToggleMapType('streets')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded transition-colors ${
+                mapType === 'streets'
+                  ? 'bg-blue-600 text-white font-semibold'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <MapIcon className="w-3.5 h-3.5" />
+              <span>Map</span>
+            </button>
+            <button
+              onClick={() => handleToggleMapType('satellite')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded transition-colors ${
+                mapType === 'satellite'
+                  ? 'bg-blue-600 text-white font-semibold'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Satellite className="w-3.5 h-3.5" />
+              <span>Satellite</span>
+            </button>
+          </div>
+
+          {/* Re-center button */}
+          <button
+            onClick={handleCenterOnUser}
+            className="bg-white/95 hover:bg-slate-50 text-slate-700 hover:text-blue-600 shadow-md p-2 rounded-lg border border-slate-200 transition-colors flex items-center justify-center"
+            title="Center on my location"
+          >
+            <Navigation className="w-4 h-4 text-blue-600" />
+          </button>
+        </div>
       </div>
 
-      {/* Map Container */}
+      {/* Map DOM Container */}
       <div ref={mapContainerRef} className="w-full h-full" />
 
-      {/* Map Legend Footer */}
-      <div className="absolute bottom-2 left-2 z-10 bg-slate-950/85 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-800 flex items-center gap-4 text-[10px] font-mono text-gray-300">
-        <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_6px_#22d3ee]" />
-          <span>Active Drone</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-          <span>Tracked Wildlife</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-          <span>Waterholes</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-          <span>Ranger Station</span>
-        </div>
+      {/* Bottom Coordinates Strip */}
+      <div className="absolute bottom-2 left-2 z-10 bg-white/95 text-slate-800 shadow-md px-3 py-1 rounded-lg border border-slate-200 text-[11px] flex items-center gap-3">
+        {userLocation ? (
+          <>
+            <span className="flex items-center gap-1 text-slate-700 font-medium">
+              <span className="w-2 h-2 rounded-full bg-blue-600" />
+              Lat: {userLocation.lat.toFixed(5)}°, Lng: {userLocation.lng.toFixed(5)}°
+            </span>
+            {userLocation.accuracy && (
+              <>
+                <span className="text-slate-300">•</span>
+                <span className="text-slate-500">
+                  Accuracy: ±{Math.round(userLocation.accuracy)}m
+                </span>
+              </>
+            )}
+          </>
+        ) : (
+          <span className="text-slate-500 italic">Click the navigation arrow to locate yourself</span>
+        )}
       </div>
     </div>
   );
