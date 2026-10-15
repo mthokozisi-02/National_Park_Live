@@ -24,6 +24,13 @@
 .DS_Store
 *.pem
 
+# Trained wildlife model weights
+backend/models/*.pt
+
+# Generated detection videos
+backend/output/*
+!backend/output/.gitkeep
+
 # debug
 npm-debug.log*
 yarn-debug.log*
@@ -61,5 +68,8 @@ training/runs/
 datasets/african_wildlife/images/
 datasets/african_wildlife/labels/
 datasets/african_wildlife/extracted_raw/
+datasets/extracted_frames/
+backend/models/*.pt
 *.zip
 *.tar.gz
+

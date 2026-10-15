@@ -97,6 +97,13 @@ export const wildlifeDetectionService = {
   },
 
   /**
+   * Get direct URL to raw safari video in backend/videos
+   */
+  getRawVideoUrl(filename: string): string {
+    return `${API_BASE_URL}/api/videos/${filename}`;
+  },
+
+  /**
    * Converts a model detection item (with normalized 0.0 - 1.0 coordinates)
    * into a frontend WildlifeDetection object with percentage-based coordinates (0.0 - 100.0).
    */

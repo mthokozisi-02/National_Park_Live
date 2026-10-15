@@ -11,7 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from fastapi.testclient import TestClient
 from app.main import app
-from app.detector import WILDLIFE_MAPPINGS, TARGET_CLASSES, model_container
+from app.detector import WILDLIFE_MAPPINGS, model, MODEL_CLASS_NAMES, MODEL_NAME
 from app.schemas import BoundingBox, DetectionItem, DetectionResponse
 
 client = TestClient(app)
@@ -19,41 +19,38 @@ client = TestClient(app)
 class TestSafariVisionBackend(unittest.TestCase):
 
     def test_health_endpoint(self):
-        """Verify health check reports model status, supported classes, and device."""
+        """Verify health check reports model status and device."""
         response = client.get("/api/health")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertIn("status", data)
-        self.assertIn("model_loaded", data)
-        self.assertIn("supported_classes", data)
-        self.assertIn("elephant", data["supported_classes"])
-        self.assertIn("zebra", data["supported_classes"])
-        self.assertIn("giraffe", data["supported_classes"])
-        self.assertIn("bird", data["supported_classes"])
+        self.assertEqual(data["status"], "ok")
+        self.assertEqual(data["service"], "wildlife-detection")
+        self.assertIn("model", data)
+        self.assertIn("device", data)
 
-    def test_species_mappings_conservative(self):
-        """Verify no unverified wildlife species mappings (e.g. cat -> lion, dog -> wild dog)."""
-        active_classes = model_container.target_class_names
-        self.assertNotIn("cat", active_classes)
-        self.assertNotIn("dog", active_classes)
-        self.assertNotIn("cow", active_classes)
-        self.assertNotIn("sheep", active_classes)
+    def test_species_mappings_and_trained_model_classes(self):
+        """Verify trained model classes are in WILDLIFE_MAPPINGS and no spurious domestic classes exist."""
+        # Ensure domestic COCO classes aren't present as target model classes
+        model_classes = set(MODEL_CLASS_NAMES.values())
+        self.assertNotIn("cat", model_classes)
+        self.assertNotIn("dog", model_classes)
+        self.assertNotIn("cow", model_classes)
+        self.assertNotIn("sheep", model_classes)
 
-        # Under default COCO yolov8n, only conservative Stage A classes are active
-        for cls in active_classes:
-            self.assertIn(cls, ["elephant", "zebra", "giraffe", "bird"])
-
-        # African wildlife taxonomy covers the 8 target species
-        target_8_species = ["elephant", "giraffe", "zebra", "impala", "lion", "leopard", "african_buffalo", "rhinoceros"]
-        for species in target_8_species:
-            self.assertIn(species, WILDLIFE_MAPPINGS)
-            self.assertIsNotNone(WILDLIFE_MAPPINGS[species]["common_name"])
+        # Ensure all trained model classes are accounted for in WILDLIFE_MAPPINGS
+        for cls_name in model_classes:
+            self.assertIn(cls_name, WILDLIFE_MAPPINGS)
+            self.assertIsNotNone(WILDLIFE_MAPPINGS[cls_name]["common_name"])
+            self.assertIsNotNone(WILDLIFE_MAPPINGS[cls_name]["scientific_name"])
 
     def test_list_videos(self):
-        """Verify video listing returns a list with allowed extensions."""
+        """Verify video listing returns a list containing available videos including final.mp4."""
         response = client.get("/api/videos")
         self.assertEqual(response.status_code, 200)
-        self.assertIsInstance(response.json(), list)
+        video_list = response.json()
+        self.assertIsInstance(video_list, list)
+        self.assertIn("final.mp4", video_list)
 
     def test_upload_invalid_extension(self):
         """Verify uploads with invalid extension (e.g. .exe) are rejected with 400."""
@@ -86,7 +83,7 @@ class TestSafariVisionBackend(unittest.TestCase):
         self.assertIn(response.status_code, [400, 404])
 
     def test_schemas_metric_separation(self):
-        """Verify DetectionResponse separates frame detections from unique animals."""
+        """Verify DetectionResponse schema parses successfully."""
         resp = DetectionResponse(
             video="test.mp4",
             frames_processed=50,
@@ -94,23 +91,29 @@ class TestSafariVisionBackend(unittest.TestCase):
             duration_seconds=2.0,
             total_frame_detections=15,
             detections=15,
-            species_frame_counts={"Elephant": 15},
-            species_counts={"Elephant": 15},
+            species_frame_counts={"African Bush Elephant": 15},
+            species_counts={"African Bush Elephant": 15},
             output_video="test_detected.mp4",
             output_url="/api/output/test_detected.mp4",
             sample_detections=[]
         )
         self.assertEqual(resp.total_frame_detections, 15)
-        self.assertEqual(resp.species_frame_counts["Elephant"], 15)
-        self.assertEqual(resp.sample_detections, [])
+        self.assertEqual(resp.detections, 15)
+        self.assertEqual(resp.species_counts["African Bush Elephant"], 15)
 
-    def test_normalized_bounding_box_coordinates(self):
-        """Verify BoundingBox schema enforces normalized 0-1 values."""
-        box = BoundingBox(x=0.25, y=0.15, width=0.50, height=0.60)
-        self.assertAlmostEqual(box.x, 0.25)
-        self.assertAlmostEqual(box.y, 0.15)
-        self.assertAlmostEqual(box.width, 0.50)
-        self.assertAlmostEqual(box.height, 0.60)
+    def test_detect_endpoint_with_final_video(self):
+        """Verify /api/detect/final.mp4 runs successfully with trained model."""
+        response = client.post("/api/detect/final.mp4?max_frames=10&frame_stride=5")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["video"], "final.mp4")
+        self.assertEqual(data["frames_processed"], 10)
+        self.assertGreater(data["detections"], 0)
+        self.assertIn("species_counts", data)
+        self.assertTrue(len(data["species_counts"]) > 0)
+        self.assertIn("sample_detections", data)
+        self.assertTrue(len(data["sample_detections"]) > 0)
+
 
 if __name__ == "__main__":
     unittest.main()

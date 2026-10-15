@@ -44,6 +44,23 @@ export default function SafariVisionApp() {
     }));
   };
 
+  const handlePlayVideoOnMainScreen = (videoUrl: string, title: string) => {
+    const annotatedStream: SafariCameraStream = {
+      id: `annotated-${Date.now()}`,
+      name: title,
+      locationName: 'AI Annotated Output',
+      description: `Annotated output from YOLO wildlife detection`,
+      coordinates: [-18.6292, 26.9501],
+      videoUrl,
+      posterUrl: '',
+      quality: '1080p 60fps',
+      bitrateMbps: 8,
+      streamStatus: 'demo',
+      detectedWildlife: wildlifeDetections,
+    };
+    setCurrentStream(annotatedStream);
+  };
+
   // Background Drone Flight Simulation
   useEffect(() => {
     let tick = 0;
@@ -196,6 +213,7 @@ export default function SafariVisionApp() {
               selectedAnimal={selectedAnimal}
               onSelectAnimal={setSelectedAnimal}
               onModelDetectionsLoaded={handleModelDetectionsLoaded}
+              onPlayVideoOnMainScreen={handlePlayVideoOnMainScreen}
               currentVideoName={currentStream.videoUrl.split('/').pop()}
             />
           </div>

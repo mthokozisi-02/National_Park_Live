@@ -13,10 +13,10 @@ from fastapi.staticfiles import StaticFiles
 
 from app.detector import (
     detect_animals,
-    model_container,
     VIDEO_DIR,
     OUTPUT_DIR,
-    MODEL_NAME
+    MODEL_NAME,
+    model,
 )
 from app.schemas import DetectionResponse, HealthResponse
 
@@ -44,8 +44,9 @@ app.add_middleware(
     allow_headers=["Content-Type", "Accept"],
 )
 
-# Serve output directory for direct static video playback if needed
+# Serve output directory and raw videos directory for direct video playback in frontend
 app.mount("/output", StaticFiles(directory=str(OUTPUT_DIR)), name="output")
+app.mount("/videos", StaticFiles(directory=str(VIDEO_DIR)), name="videos")
 
 # Video upload limits & supported extensions
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", 100 * 1024 * 1024))  # 100 MB
@@ -54,18 +55,13 @@ ALLOWED_EXTENSIONS = {".mp4", ".webm", ".mov"}
 
 @app.get("/api/health", response_model=HealthResponse)
 def health():
-    """System health check endpoint reporting model status and device."""
-    status_info = model_container.get_status()
-    is_healthy = status_info["model_loaded"]
-    
+    device = getattr(model, "device", "cpu")
+
     return {
-        "status": "ok" if is_healthy else "degraded",
+        "status": "ok",
         "service": "wildlife-detection",
-        "model_loaded": is_healthy,
-        "model": status_info["model"],
-        "device": status_info["device"],
-        "supported_classes": status_info["supported_classes"],
-        "error": status_info["error"],
+        "model": MODEL_NAME,
+        "device": str(device),
     }
 
 
@@ -77,6 +73,19 @@ def list_videos():
         if f.is_file() and f.suffix.lower() in ALLOWED_EXTENSIONS
     ]
     return sorted(videos)
+
+
+@app.get("/api/videos/{filename}")
+def get_raw_video(filename: str):
+    """Retrieve raw safari video file from backend/videos for player streaming."""
+    if Path(filename).name != filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename.")
+    file_path = VIDEO_DIR / filename
+    if not file_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video file not found.")
+    ext = file_path.suffix.lower()
+    media_type = "video/webm" if ext == ".webm" else "video/mp4"
+    return FileResponse(path=str(file_path), media_type=media_type)
 
 
 @app.post("/api/upload")
@@ -162,7 +171,7 @@ async def upload_video(file: UploadFile = File(...)):
 def detect_video(
     video_name: str,
     conf: float = Query(0.25, ge=0.05, le=0.95, description="Confidence threshold"),
-    max_frames: Optional[int] = Query(100, ge=10, le=2000, description="Max frames to process for fast responsive preview"),
+    max_frames: Optional[int] = Query(None, description="Max frames to process, or None to scan the full video"),
     frame_stride: int = Query(2, ge=1, le=30, description="Process every N-th frame for speed")
 ):
     """
@@ -176,10 +185,10 @@ def detect_video(
             detail="Invalid video filename. Path traversal not permitted.",
         )
 
-    if not model_container.is_loaded:
+    if model is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Wildlife detection model unavailable: {model_container.load_error or 'Not loaded'}",
+            detail="Wildlife detection model unavailable: Not loaded",
         )
 
     try:

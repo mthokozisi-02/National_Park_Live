@@ -23,6 +23,7 @@ interface WildlifePanelProps {
   selectedAnimal: WildlifeDetection | null;
   onSelectAnimal: (animal: WildlifeDetection | null) => void;
   onModelDetectionsLoaded?: (detections: WildlifeDetection[]) => void;
+  onPlayVideoOnMainScreen?: (videoUrl: string, title: string) => void;
   currentVideoName?: string;
 }
 
@@ -31,6 +32,7 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
   selectedAnimal,
   onSelectAnimal,
   onModelDetectionsLoaded,
+  onPlayVideoOnMainScreen,
   currentVideoName = 'safari-feed-alpha.webm',
 }) => {
   const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
@@ -39,6 +41,9 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
   const [inferenceResult, setInferenceResult] = useState<ModelDetectionResponse | null>(null);
   const [inferenceError, setInferenceError] = useState<string | null>(null);
   const [availableVideos, setAvailableVideos] = useState<string[]>([]);
+  const [selectedVideo, setSelectedVideo] = useState<string>('');
+  const [scanMode, setScanMode] = useState<'full' | 'preview'>('preview');
+  const [lastOutputVideoUrl, setLastOutputVideoUrl] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'catalog' | 'model'>('catalog');
 
   // Check FastAPI backend status on mount
@@ -51,6 +56,9 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
       if (isMounted) {
         setBackendHealth(health);
         setAvailableVideos(videos);
+        if (videos.length > 0 && !selectedVideo) {
+          setSelectedVideo(videos[0]);
+        }
         setIsCheckingBackend(false);
       }
     }
@@ -59,20 +67,28 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
   }, []);
 
   // Trigger real YOLO detection via FastAPI
-  const handleRunInference = async (videoToProcess?: string) => {
-    const targetVideo = videoToProcess || (availableVideos.length > 0 ? availableVideos[0] : 'safari.webm');
+  const handleRunInference = async () => {
+    const targetVideo = selectedVideo || (availableVideos.length > 0 ? availableVideos[0] : 'safari.webm');
     setIsInferring(true);
     setInferenceError(null);
+    setLastOutputVideoUrl(null);
 
     try {
-      // Process 35 frames with stride of 2 for fast responsive feedback
       const result = await wildlifeDetectionService.runDetection(targetVideo, {
         conf: 0.25,
-        maxFrames: 35,
+        // Full scan: omit maxFrames so backend processes all frames; Preview: cap at 100
+        ...(scanMode === 'preview' ? { maxFrames: 100 } : {}),
         frameStride: 2,
       });
       setInferenceResult(result);
       setActiveTab('model');
+
+      // Build the output video URL from the backend response
+      if (result.output_url) {
+        const outputFilename = result.output_url.split('/').pop() || '';
+        const outputUrl = wildlifeDetectionService.getOutputVideoUrl(outputFilename);
+        setLastOutputVideoUrl(outputUrl);
+      }
 
       // Convert sample detections to WildlifeDetection objects for the HUD & catalog
       if (result.sample_detections && result.sample_detections.length > 0) {
@@ -143,34 +159,69 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
 
         {backendHealth ? (
           <div className="flex flex-col gap-2 pt-1">
+            {/* Video Selection Dropdown */}
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleRunInference('safari-feed-alpha.webm')}
+              <Video className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+              <select
+                value={selectedVideo}
+                onChange={(e) => setSelectedVideo(e.target.value)}
                 disabled={isInferring}
-                className="flex-1 flex items-center justify-center gap-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-bold py-1.5 px-3 rounded text-xs transition-all disabled:opacity-50 cursor-pointer shadow-md"
+                className="flex-1 bg-slate-950 border border-slate-700 hover:border-cyan-500 text-gray-200 px-2 py-1 rounded text-xs font-mono focus:outline-none cursor-pointer disabled:opacity-50"
               >
-                {isInferring ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>RUNNING INFERENCE...</span>
-                  </>
+                {availableVideos.length > 0 ? (
+                  availableVideos.map((v) => (
+                    <option key={v} value={v}>{v}</option>
+                  ))
                 ) : (
-                  <>
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>SCAN ELEPHANT FEED</span>
-                  </>
+                  <option value="">No videos found</option>
                 )}
-              </button>
+              </select>
+            </div>
 
+            {/* Scan Mode Toggle */}
+            <div className="flex items-center gap-1.5">
               <button
-                onClick={() => handleRunInference('safari-feed-bravo.webm')}
+                onClick={() => setScanMode('preview')}
                 disabled={isInferring}
-                className="flex-1 flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 font-bold py-1.5 px-3 rounded text-xs transition-all disabled:opacity-50 cursor-pointer"
+                className={`flex-1 text-[10px] font-bold py-1 rounded transition-all ${
+                  scanMode === 'preview'
+                    ? 'bg-cyan-500/20 border border-cyan-400 text-cyan-300'
+                    : 'bg-slate-950 border border-slate-800 text-gray-500 hover:text-gray-300'
+                } disabled:opacity-50`}
               >
-                <Video className="w-3.5 h-3.5 text-amber-400" />
-                <span>SCAN GIRAFFE FEED</span>
+                QUICK PREVIEW (100 frames)
+              </button>
+              <button
+                onClick={() => setScanMode('full')}
+                disabled={isInferring}
+                className={`flex-1 text-[10px] font-bold py-1 rounded transition-all ${
+                  scanMode === 'full'
+                    ? 'bg-amber-500/20 border border-amber-400 text-amber-300'
+                    : 'bg-slate-950 border border-slate-800 text-gray-500 hover:text-gray-300'
+                } disabled:opacity-50`}
+              >
+                FULL VIDEO SCAN
               </button>
             </div>
+
+            {/* Run Inference Button */}
+            <button
+              onClick={() => handleRunInference()}
+              disabled={isInferring || !selectedVideo}
+              className="flex items-center justify-center gap-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-bold py-1.5 px-3 rounded text-xs transition-all disabled:opacity-50 cursor-pointer shadow-md"
+            >
+              {isInferring ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>RUNNING INFERENCE{scanMode === 'full' ? ' (FULL VIDEO)' : ''}...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>SCAN {selectedVideo ? selectedVideo.toUpperCase() : 'VIDEO'}</span>
+                </>
+              )}
+            </button>
 
             {/* Inference Result Summary Banner */}
             {inferenceResult && (
@@ -195,6 +246,18 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
                       .join(', ') || 'None'}
                   </span>
                 </div>
+
+                {/* Play Annotated Output on Main Screen */}
+                {lastOutputVideoUrl && onPlayVideoOnMainScreen && (
+                  <button
+                    onClick={() => onPlayVideoOnMainScreen(lastOutputVideoUrl, `${selectedVideo} — AI Annotated`)}
+                    className="mt-1 flex items-center justify-center gap-1.5 bg-cyan-500 hover:bg-cyan-400 text-black font-bold py-1.5 px-3 rounded text-[11px] transition-all cursor-pointer shadow-md"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>▶ PLAY ANNOTATED VIDEO ON MAIN SCREEN</span>
+                  </button>
+                )}
+
                 <div className="text-[9px] text-gray-400 italic pt-0.5 border-t border-emerald-900/40">
                   * Frame detections count appearances across evaluated frames. Unique animal counts will be tracked via ByteTrack in Milestone 2.
                 </div>

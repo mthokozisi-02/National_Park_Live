@@ -22,10 +22,10 @@ class DetectionResponse(BaseModel):
     frames_processed: int
     fps: float
     duration_seconds: float
-    total_frame_detections: int = Field(..., description="Total animal bounding box detections across all evaluated frames")
-    detections: int = Field(..., description="Alias for total_frame_detections for backward compatibility")
+    total_frame_detections: Optional[int] = Field(None, description="Total animal bounding box detections across evaluated frames")
+    detections: int = Field(..., description="Total detections count")
     species_frame_counts: Dict[str, int] = Field(default_factory=dict, description="Detections per species across frames")
-    species_counts: Dict[str, int] = Field(default_factory=dict, description="Alias for species_frame_counts")
+    species_counts: Dict[str, int] = Field(default_factory=dict, description="Detections per species dictionary")
     output_video: str
     output_url: str
     sample_detections: List[DetectionItem] = Field(default_factory=list)
@@ -33,8 +33,8 @@ class DetectionResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     service: str
-    model_loaded: bool
     model: str
     device: Optional[str] = None
+    model_loaded: Optional[bool] = Field(True, description="Whether the model is loaded")
     supported_classes: List[str] = Field(default_factory=list)
     error: Optional[str] = None

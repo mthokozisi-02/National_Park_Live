@@ -60,6 +60,17 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
   const [snapshotStatus, setSnapshotStatus] = useState<{ message: string; isError?: boolean } | null>(null);
   const [simulatedPing, setSimulatedPing] = useState<number>(118);
 
+  // Reset video error and show loading state when switching streams or videos
+  useEffect(() => {
+    setVideoError(false);
+    setIsLoading(true);
+  }, [currentStream.videoUrl]);
+
+  // Ensure current stream is represented in the dropdown options
+  const allStreams = streams.some((s) => s.id === currentStream.id)
+    ? streams
+    : [currentStream, ...streams];
+
   // Ping jitter simulation to reflect low-latency link
   useEffect(() => {
     const interval = setInterval(() => {
@@ -442,7 +453,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
           <select
             value={currentStream.id}
             onChange={(e) => {
-              const selected = streams.find((s) => s.id === e.target.value);
+              const selected = allStreams.find((s) => s.id === e.target.value);
               if (selected) {
                 setVideoError(false);
                 setIsLoading(true);
@@ -451,7 +462,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
             }}
             className="bg-slate-900 border border-slate-700 hover:border-cyan-500 text-gray-200 px-3 py-1 rounded focus:outline-none cursor-pointer"
           >
-            {streams.map((stream) => (
+            {allStreams.map((stream) => (
               <option key={stream.id} value={stream.id}>
                 {stream.name}
               </option>
