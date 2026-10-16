@@ -1,5 +1,6 @@
 import os
 import uuid
+import time
 import subprocess
 import logging
 from pathlib import Path
@@ -247,6 +248,9 @@ def detect_animals(
     frame_index = 0
     frames_processed = 0
     total_detections = 0
+    unique_track_ids: set = set()
+    species_unique_ids: Dict[str, set] = {}
+    total_inference_time: float = 0.0
 
     species_counts: Dict[str, int] = {}
     sample_detections: List[Dict[str, Any]] = []
@@ -269,13 +273,25 @@ def detect_animals(
             if current_frame % frame_stride != 0:
                 continue
 
-            # Run the custom-trained model.
-            results = model.predict(
-                source=frame,
-                conf=conf_threshold,
-                imgsz=640,
-                verbose=False,
-            )[0]
+            # Run the custom-trained model with ByteTrack object tracking
+            t0 = time.perf_counter()
+            try:
+                results = model.track(
+                    source=frame,
+                    conf=conf_threshold,
+                    imgsz=640,
+                    persist=True,
+                    tracker="bytetrack.yaml",
+                    verbose=False,
+                )[0]
+            except Exception:
+                results = model.predict(
+                    source=frame,
+                    conf=conf_threshold,
+                    imgsz=640,
+                    verbose=False,
+                )[0]
+            total_inference_time += (time.perf_counter() - t0)
 
             # Draw bounding boxes and class labels.
             annotated_frame = results.plot()
@@ -320,6 +336,18 @@ def detect_animals(
 
                 total_detections += 1
 
+                # Track unique animal individuals across frames via ByteTrack ID
+                track_id = (
+                    int(box.id[0].item())
+                    if (box.id is not None and len(box.id) > 0)
+                    else None
+                )
+                if track_id is not None:
+                    unique_track_ids.add(track_id)
+                    if common_name not in species_unique_ids:
+                        species_unique_ids[common_name] = set()
+                    species_unique_ids[common_name].add(track_id)
+
                 species_counts[common_name] = (
                     species_counts.get(common_name, 0) + 1
                 )
@@ -348,6 +376,7 @@ def detect_animals(
                 if len(sample_detections) < 1000:
                     sample_detections.append({
                         "id": str(uuid.uuid4())[:8],
+                        "track_id": track_id,
                         "frame": current_frame,
                         "timestamp_sec": round(timestamp_sec, 2),
                         "species": scientific_name,
@@ -386,6 +415,16 @@ def detect_animals(
         else frame_index / fps
     )
 
+    avg_inference_ms = (
+        (total_inference_time / frames_processed) * 1000.0
+        if frames_processed > 0
+        else 0.0
+    )
+
+    species_unique_counts = {
+        k: len(v) for k, v in species_unique_ids.items()
+    }
+
     return {
         "video": video_name,
         "frames_processed": frames_processed,
@@ -393,8 +432,11 @@ def detect_animals(
         "duration_seconds": round(duration_sec, 2),
         "total_frame_detections": total_detections,
         "detections": total_detections,
+        "unique_individuals": len(unique_track_ids) if unique_track_ids else total_detections,
         "species_frame_counts": species_counts,
         "species_counts": species_counts,
+        "species_unique_counts": species_unique_counts if species_unique_counts else species_counts,
+        "inference_speed_ms": round(avg_inference_ms, 1),
         "output_video": str(output_path),
         "output_url": f"/api/output/{output_filename}",
         "sample_detections": sample_detections,

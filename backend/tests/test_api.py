@@ -114,6 +114,91 @@ class TestSafariVisionBackend(unittest.TestCase):
         self.assertIn("sample_detections", data)
         self.assertTrue(len(data["sample_detections"]) > 0)
 
+    def test_sightings_endpoints(self):
+        """Verify sightings list, species filter, and age filter."""
+        # 1. Fetch all sightings
+        resp = client.get("/api/sightings")
+        self.assertEqual(resp.status_code, 200)
+        sightings = resp.json()
+        self.assertIsInstance(sightings, list)
+        self.assertGreater(len(sightings), 0)
+
+        # 2. Filter by species
+        resp_elephants = client.get("/api/sightings?species=African%20Elephant")
+        self.assertEqual(resp_elephants.status_code, 200)
+        elephants = resp_elephants.json()
+        for s in elephants:
+            self.assertEqual(s["common_name"], "African Elephant")
+
+        # 3. Filter by recent age
+        resp_recent = client.get("/api/sightings?max_age_hours=1.0")
+        self.assertEqual(resp_recent.status_code, 200)
+
+    def test_create_sighting_and_stats(self):
+        """Verify manual sighting creation and stats calculation."""
+        payload = {
+            "species": "Panthera leo",
+            "common_name": "Lion",
+            "confidence": 0.95,
+            "count": 3,
+            "latitude": -18.632,
+            "longitude": 26.953,
+            "altitude_m": 1045.0,
+            "notes": "Test pride sighting"
+        }
+        create_resp = client.post("/api/sightings", json=payload)
+        self.assertEqual(create_resp.status_code, 200)
+        created = create_resp.json()
+        self.assertIn("id", created)
+        self.assertEqual(created["common_name"], "Lion")
+        self.assertEqual(created["count"], 3)
+
+        # Verify stats endpoint
+        stats_resp = client.get("/api/sightings/stats")
+        self.assertEqual(stats_resp.status_code, 200)
+        stats = stats_resp.json()
+        self.assertGreater(stats["total_sightings"], 0)
+        self.assertGreater(stats["total_animals"], 0)
+        self.assertTrue(len(stats["species_breakdown"]) > 0)
+
+    def test_estimate_ground_location(self):
+        """Verify ground geodesic projection calculation."""
+        resp = client.post(
+            "/api/sightings/estimate-location?drone_lat=-18.6320&drone_lng=26.9535&drone_alt_m=80.0&heading_deg=0.0&gimbal_pitch_deg=-45.0&bbox_x=0.5&bbox_y=0.5"
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("latitude", data)
+        self.assertIn("longitude", data)
+        self.assertIn("ground_distance_m", data)
+        self.assertGreater(data["ground_distance_m"], 0.0)
+
+    def test_analytics_endpoints(self):
+        """Verify analytics summary, predictive occurrence, and intelligence reports."""
+        # 1. Summary
+        sum_resp = client.get("/api/analytics/summary")
+        self.assertEqual(sum_resp.status_code, 200)
+        summary = sum_resp.json()
+        self.assertIn("total_sightings", summary)
+        self.assertIn("sector_analysis", summary)
+        self.assertTrue(len(summary["sector_analysis"]) > 0)
+
+        # 2. Predictive occurrence
+        pred_resp = client.get("/api/analytics/predictive-occurrence?hour=15")
+        self.assertEqual(pred_resp.status_code, 200)
+        pred = pred_resp.json()
+        self.assertEqual(pred["evaluation_hour"], 15)
+        self.assertIn("predictions", pred)
+        self.assertTrue(len(pred["predictions"]) > 0)
+
+        # 3. Wildlife report
+        rep_resp = client.get("/api/analytics/report?report_type=daily")
+        self.assertEqual(rep_resp.status_code, 200)
+        report = rep_resp.json()
+        self.assertIn("title", report)
+        self.assertIn("key_takeaways", report)
+        self.assertTrue(len(report["key_takeaways"]) > 0)
+
 
 if __name__ == "__main__":
     unittest.main()

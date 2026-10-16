@@ -5,25 +5,24 @@ import { SafariCameraStream, DroneTelemetry, WildlifeDetection, StreamStatus } f
 import { DroneHudOverlay } from './DroneHudOverlay';
 import { savannaAudio } from '@/utils/audioSynthesizer';
 import { wildlifeDetectionService } from '@/services/wildlifeDetectionService';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  Play,
-  Pause,
-  Volume2,
-  VolumeX,
-  Maximize,
-  Minimize,
-  Eye,
-  EyeOff,
-  Flame,
-  Camera,
-  Radio,
-  Sliders,
-  CheckCircle2,
-  AlertTriangle,
-  Loader2,
-  Download,
-  Scan
-} from 'lucide-react';
+  faPlay,
+  faPause,
+  faVolumeHigh,
+  faVolumeXmark,
+  faExpand,
+  faCompress,
+  faEye,
+  faEyeSlash,
+  faFire,
+  faCamera,
+  faVrCardboard,
+  faTowerBroadcast,
+  faCircleNotch,
+  faDownload,
+  faTriangleExclamation,
+} from '@fortawesome/free-solid-svg-icons';
 
 interface SafariVideoPlayerProps {
   currentStream: SafariCameraStream;
@@ -89,17 +88,28 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
     currentStream.videoUrl.includes('/api/output/') ||
     currentStream.videoUrl.includes('_detected');
 
+  // Ref to decouple callback from scanner effect to prevent re-render cascading
+  const onLiveDetectionsFoundRef = useRef(onLiveDetectionsFound);
+  useEffect(() => {
+    onLiveDetectionsFoundRef.current = onLiveDetectionsFound;
+  }, [onLiveDetectionsFound]);
+
   useEffect(() => {
     // If AI vision is off or video already has burned-in detections from YOLO, skip frame snapshotting
     if (!showAiVision || isDetectedVideo) {
-      if (onLiveDetectionsFound) onLiveDetectionsFound([]);
+      onLiveDetectionsFoundRef.current?.([]);
       return;
     }
 
+    // Immediately clear detections when switching videos to prevent previous video's animals from persisting
+    onLiveDetectionsFoundRef.current?.([]);
+
     let isScanning = false;
     let timerId: NodeJS.Timeout;
+    let isMounted = true;
 
     const runFrameScan = async () => {
+      if (!isMounted) return;
       const video = videoRef.current;
       if (!video || video.paused || video.ended || video.readyState < 2) {
         timerId = setTimeout(runFrameScan, 250);
@@ -120,7 +130,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
         const ctx = canvas.getContext('2d');
         if (!ctx) {
           isScanning = false;
-          timerId = setTimeout(runFrameScan, 250);
+          if (isMounted) timerId = setTimeout(runFrameScan, 250);
           return;
         }
 
@@ -134,34 +144,39 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
 
         canvas.toBlob(async (blob) => {
           try {
-            if (blob) {
+            if (blob && isMounted) {
               const liveDetections = await wildlifeDetectionService.detectFrame(blob, 0.25);
-              if (onLiveDetectionsFound) {
+              if (isMounted) {
                 // Always report detections to HUD: if animals are detected, show them;
                 // if none are detected in this frame, CLEAR the overlay immediately!
-                onLiveDetectionsFound(liveDetections || []);
+                onLiveDetectionsFoundRef.current?.(liveDetections || []);
               }
             }
           } catch {
             // Keep going on network hiccup
           } finally {
             isScanning = false;
-            // Schedule next scan in 250ms for smooth real-time tracking
-            timerId = setTimeout(runFrameScan, 250);
+            if (isMounted) {
+              // Schedule next scan in 250ms for smooth real-time tracking
+              timerId = setTimeout(runFrameScan, 250);
+            }
           }
         }, 'image/jpeg', 0.80);
       } catch {
         isScanning = false;
-        timerId = setTimeout(runFrameScan, 250);
+        if (isMounted) {
+          timerId = setTimeout(runFrameScan, 250);
+        }
       }
     };
 
     timerId = setTimeout(runFrameScan, 200);
 
     return () => {
+      isMounted = false;
       clearTimeout(timerId);
     };
-  }, [showAiVision, onLiveDetectionsFound]);
+  }, [showAiVision, isDetectedVideo, currentStream.videoUrl]);
 
   // Synchronize fullscreen state with document changes (e.g. user presses Esc)
   useEffect(() => {
@@ -407,28 +422,28 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
     switch (currentStream.streamStatus) {
       case 'live':
         return (
-          <div className="flex items-center gap-2 bg-emerald-600/20 border border-emerald-500/50 px-2.5 py-1 rounded text-emerald-400 font-bold">
+          <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-300 px-2.5 py-1 rounded text-emerald-800 font-bold">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span>LIVE FEED (WEBRTC)</span>
           </div>
         );
       case 'demo':
         return (
-          <div className="flex items-center gap-2 bg-amber-500/20 border border-amber-500/50 px-2.5 py-1 rounded text-amber-300 font-bold">
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-300 px-2.5 py-1 rounded text-amber-800 font-bold">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
             <span>DEMO FOOTAGE (SAMPLE FEED)</span>
           </div>
         );
       case 'connecting':
         return (
-          <div className="flex items-center gap-2 bg-cyan-600/20 border border-cyan-500/50 px-2.5 py-1 rounded text-cyan-400 font-bold">
-            <Loader2 className="w-3 h-3 animate-spin" />
+          <div className="flex items-center gap-2 bg-blue-50 border border-blue-300 px-2.5 py-1 rounded text-blue-800 font-bold">
+            <FontAwesomeIcon icon={faCircleNotch} className="w-3 h-3 animate-spin text-blue-600" />
             <span>CONNECTING...</span>
           </div>
         );
       default:
         return (
-          <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 px-2.5 py-1 rounded text-gray-400 font-bold">
+          <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded text-slate-700 font-bold">
             <span>FEED OFFLINE</span>
           </div>
         );
@@ -438,31 +453,31 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`relative w-full rounded-2xl overflow-hidden border border-cyan-500/30 bg-black shadow-2xl flex flex-col ${
-        isFullscreen ? 'h-screen rounded-none border-none' : 'aspect-[16/9] min-h-[460px]'
+      className={`relative w-full rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-xs flex flex-col p-1.5 ${
+        isFullscreen ? 'h-screen rounded-none border-none p-0' : 'aspect-[16/9] min-h-[460px]'
       }`}
     >
       {/* Video Stream or Fallback Engine */}
-      <div className="relative w-full h-full flex-1 overflow-hidden bg-slate-950">
+      <div className="relative w-full h-full flex-1 overflow-hidden rounded-xl bg-slate-900">
         {isLoading && !videoError && (
-          <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm">
-            <div className="flex flex-col items-center gap-2 font-mono text-xs text-cyan-400">
-              <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
-              <span>BUFFERING STREAM FEED...</span>
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80 backdrop-blur-xs">
+            <div className="flex flex-col items-center gap-2 font-mono text-xs text-slate-800">
+              <FontAwesomeIcon icon={faCircleNotch} className="w-8 h-8 animate-spin text-emerald-600" />
+              <span className="font-bold">BUFFERING STREAM FEED...</span>
             </div>
           </div>
         )}
 
         {/* Real-time Status Badge */}
         {isDetectedVideo ? (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-black/85 backdrop-blur-md border border-amber-500/60 text-amber-300 px-3.5 py-1 rounded-full text-xs font-mono shadow-[0_0_15px_rgba(245,158,11,0.35)]">
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-            <span className="font-bold tracking-wide">YOLO DETECTED STREAM (NATIVE HD)</span>
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white/95 backdrop-blur-md border border-slate-200 text-slate-900 px-3.5 py-1 rounded-full text-xs font-mono shadow-md font-bold">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="tracking-wide">YOLO DETECTED STREAM (NATIVE HD)</span>
           </div>
         ) : showAiVision ? (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-black/85 backdrop-blur-md border border-cyan-500/60 text-cyan-300 px-3.5 py-1 rounded-full text-xs font-mono shadow-[0_0_15px_rgba(6,182,212,0.35)]">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="font-bold tracking-wide">RAW DRONE CAMERA FEED</span>
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white/95 backdrop-blur-md border border-slate-200 text-slate-900 px-3.5 py-1 rounded-full text-xs font-mono shadow-md font-bold">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="tracking-wide">RAW DRONE CAMERA FEED</span>
           </div>
         ) : null}
 
@@ -523,9 +538,9 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
             }`}
           >
             {snapshotStatus.isError ? (
-              <AlertTriangle className="w-4 h-4" />
+              <FontAwesomeIcon icon={faTriangleExclamation} className="w-4 h-4" />
             ) : (
-              <Download className="w-4 h-4" />
+              <FontAwesomeIcon icon={faDownload} className="w-4 h-4" />
             )}
             <span>{snapshotStatus.message}</span>
           </div>
@@ -533,18 +548,18 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
       </div>
 
       {/* Control Console & Bottom HUD Toolbar */}
-      <div className="relative z-20 bg-slate-950/90 backdrop-blur-xl border-t border-cyan-500/20 px-4 py-3 flex flex-wrap items-center justify-between gap-4 text-xs font-mono">
+      <div className="relative z-20 bg-white border-t border-slate-200 px-4 py-2.5 flex flex-wrap items-center justify-between gap-4 text-xs font-mono text-slate-800">
         {/* Stream Status & Source Selector */}
         <div className="flex items-center gap-3">
           {renderStatusBadge()}
 
-          <div className="flex items-center gap-1.5 text-gray-400 bg-slate-900 px-2 py-1 rounded border border-slate-800">
-            <Radio className="w-3.5 h-3.5 text-cyan-400" />
+          <div className="flex items-center gap-1.5 text-slate-700 bg-slate-50 px-2 py-1 rounded border border-slate-200">
+            <FontAwesomeIcon icon={faTowerBroadcast} className="w-3 h-3 text-emerald-600" />
             <span>{currentStream.quality}</span>
-            <span className="text-gray-600">•</span>
-            <span className="text-cyan-400">{currentStream.bitrateMbps} Mbps</span>
-            <span className="text-gray-600">•</span>
-            <span className="text-amber-400">DEMO LATENCY: {simulatedPing}ms</span>
+            <span className="text-slate-400">•</span>
+            <span className="text-slate-900 font-bold">{currentStream.bitrateMbps} Mbps</span>
+            <span className="text-slate-400">•</span>
+            <span className="text-slate-600">LATENCY: {simulatedPing}ms</span>
           </div>
 
           {/* Quick Stream Dropdown */}
@@ -558,7 +573,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
                 onSelectStream(selected);
               }
             }}
-            className="bg-slate-900 border border-slate-700 hover:border-cyan-500 text-gray-200 px-3 py-1 rounded focus:outline-none cursor-pointer"
+            className="bg-slate-50 border border-slate-300 hover:border-slate-400 text-slate-800 px-3 py-1 rounded focus:outline-none cursor-pointer"
           >
             {allStreams.map((stream) => (
               <option key={stream.id} value={stream.id}>
@@ -568,84 +583,85 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
           </select>
         </div>
 
-        {/* Feature Switches & Tactical Tools */}
+        {/* Feature Switches & Tools */}
         <div className="flex items-center gap-2">
           {/* Play/Pause Button */}
           <button
             onClick={togglePlay}
-            className="bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 p-1.5 rounded text-gray-300"
+            className="bg-slate-50 hover:bg-slate-100 border border-slate-300 p-1.5 rounded text-slate-700 cursor-pointer shadow-2xs"
             title={isPlaying ? 'Pause Feed' : 'Resume Feed'}
           >
-            {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+            <FontAwesomeIcon icon={isPlaying ? faPause : faPlay} className="w-3.5 h-3.5" />
           </button>
 
-          {/* AI Vision Overlay Toggle */}
+          {/* Detection Overlay Toggle */}
           <button
             onClick={() => setShowAiVision(!showAiVision)}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded border transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded border transition-all cursor-pointer shadow-2xs ${
               showAiVision
-                ? 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
-                : 'bg-slate-900 border-slate-800 text-gray-400 hover:text-gray-200'
+                ? 'bg-emerald-50 border-emerald-400 text-emerald-800 font-semibold'
+                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
             }`}
-            title="Toggle AI Wildlife Bounding Boxes"
+            title="Toggle Wildlife Bounding Boxes"
           >
-            {showAiVision ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-            <span>AI VISION</span>
+            <FontAwesomeIcon icon={showAiVision ? faEye : faEyeSlash} className="w-3.5 h-3.5" />
+            <span>DETECTIONS</span>
           </button>
 
-          {/* FLIR Thermal Night Vision Toggle */}
+          {/* Thermal Vision Toggle */}
           <button
             onClick={() => setShowThermal(!showThermal)}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded border transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded border transition-all cursor-pointer shadow-2xs ${
               showThermal
-                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
-                : 'bg-slate-900 border-slate-800 text-gray-400 hover:text-gray-200'
+                ? 'bg-amber-50 border-amber-400 text-amber-800 font-semibold'
+                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
             }`}
-            title="Toggle Anti-Poaching FLIR Thermal Imagery"
+            title="Toggle Thermal Imagery"
           >
-            <Flame className="w-3.5 h-3.5" />
-            <span>FLIR THERMAL</span>
+            <FontAwesomeIcon icon={faFire} className="w-3.5 h-3.5" />
+            <span>THERMAL</span>
           </button>
 
-          {/* Real Snapshot Download Button */}
+          {/* Snapshot Button */}
           <button
             onClick={handleTakeSnapshot}
-            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-cyan-400 text-gray-300 px-3 py-1 rounded transition-colors"
-            title="Capture & Download Geotagged Frame"
+            className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 px-3 py-1 rounded transition-colors cursor-pointer shadow-2xs"
+            title="Capture Geotagged Frame"
           >
-            <Camera className="w-3.5 h-3.5 text-cyan-400" />
+            <FontAwesomeIcon icon={faCamera} className="w-3.5 h-3.5 text-blue-600" />
             <span>SNAPSHOT</span>
           </button>
 
-          {/* Savanna Ambient Soundscape Toggle */}
+          {/* Savanna Audio Toggle */}
           <button
             onClick={toggleAudio}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded border transition-colors ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded border transition-colors cursor-pointer shadow-2xs ${
               !isAudioMuted
-                ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
-                : 'bg-slate-900 border-slate-800 text-gray-400 hover:text-gray-200'
+                ? 'bg-blue-50 border-blue-400 text-blue-800'
+                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
             }`}
-            title="Toggle Procedural Savanna Soundscape"
+            title="Toggle Savanna Soundscape"
           >
-            {!isAudioMuted ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
-            <span>SAVANNA AUDIO</span>
+            <FontAwesomeIcon icon={!isAudioMuted ? faVolumeHigh : faVolumeXmark} className="w-3.5 h-3.5" />
+            <span>AUDIO</span>
           </button>
 
           {/* Enter VR Action Button */}
           <button
             onClick={onEnterVr}
-            className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-bold px-3 py-1 rounded shadow-md hover:shadow-amber-500/30 transition-all cursor-pointer"
+            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold px-3 py-1 rounded shadow-xs transition-all cursor-pointer"
           >
-            <span>ENTER VR</span>
+            <FontAwesomeIcon icon={faVrCardboard} className="w-3.5 h-3.5" />
+            <span>VR</span>
           </button>
 
           {/* Fullscreen Toggle */}
           <button
             onClick={toggleFullscreen}
-            className="bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-600 p-1.5 rounded text-gray-300"
+            className="bg-slate-50 hover:bg-slate-100 border border-slate-300 p-1.5 rounded text-slate-700 cursor-pointer shadow-2xs"
             title="Toggle Fullscreen"
           >
-            {isFullscreen ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
+            <FontAwesomeIcon icon={isFullscreen ? faCompress : faExpand} className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>

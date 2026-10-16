@@ -20,7 +20,26 @@ from app.detector import (
     model,
     WILDLIFE_MAPPINGS,
 )
-from app.schemas import DetectionResponse, HealthResponse
+from app.sightings import (
+    init_sightings_db,
+    record_sighting,
+    get_sightings,
+    get_sighting_stats,
+    estimate_animal_ground_location,
+    HWANGE_ZONES,
+)
+from app.analytics import (
+    get_analytics_summary,
+    get_predictive_occurrence,
+    generate_wildlife_report,
+)
+from app.schemas import (
+    DetectionResponse,
+    HealthResponse,
+    SightingItem,
+    SightingCreate,
+    SightingStatsResponse,
+)
 
 logger = logging.getLogger("safari.api")
 
@@ -29,6 +48,10 @@ app = FastAPI(
     description="Real-time and batch wildlife detection engine using Ultralytics YOLO & OpenCV for Hwange National Park drone feeds.",
     version="1.1.0",
 )
+
+@app.on_event("startup")
+def on_startup():
+    init_sightings_db()
 
 # CORS configuration - tightened to specific origins and explicit methods
 CORS_ORIGINS = os.getenv(
@@ -276,11 +299,137 @@ def detect_video(
             max_frames=max_frames,
             frame_stride=frame_stride
         )
+
+        # Automatically persist unique animal sightings into the sightings DB
+        try:
+            base_zone = HWANGE_ZONES["Nyamandhlovu Pan"]
+            v_lower = video_name.lower()
+            if "main" in v_lower:
+                base_zone = HWANGE_ZONES["Main Camp Waterhole"]
+            elif "guvalala" in v_lower:
+                base_zone = HWANGE_ZONES["Guvalala Platform"]
+            elif "mandavu" in v_lower:
+                base_zone = HWANGE_ZONES["Mandavu Dam"]
+
+            recorded_tracks = set()
+            for sample in results.get("sample_detections", []):
+                track_id = sample.get("track_id")
+                c_name = sample.get("common_name")
+                key = f"{c_name}_{track_id}" if track_id else f"{c_name}_{sample.get('id')}"
+                if key in recorded_tracks:
+                    continue
+                recorded_tracks.add(key)
+
+                box = sample.get("box", {})
+                cx = box.get("x", 0.5) + (box.get("width", 0.1) / 2.0)
+                cy = box.get("y", 0.5) + (box.get("height", 0.1) / 2.0)
+
+                ground_pos = estimate_animal_ground_location(
+                    drone_lat=base_zone[0],
+                    drone_lng=base_zone[1],
+                    drone_alt_m=85.0,
+                    heading_deg=35.0,
+                    gimbal_pitch_deg=-45.0,
+                    bbox_center_x=cx,
+                    bbox_center_y=cy,
+                )
+
+                record_sighting({
+                    "species": sample.get("species") or c_name,
+                    "common_name": c_name,
+                    "confidence": sample.get("confidence", 0.9),
+                    "count": 1,
+                    "latitude": ground_pos["latitude"],
+                    "longitude": ground_pos["longitude"],
+                    "altitude_m": 1045.0,
+                    "source_video": video_name,
+                    "source_frame": sample.get("frame", 0),
+                    "track_id": track_id,
+                    "notes": f"Field observation from {video_name} (Track #{track_id or 'N/A'})",
+                })
+        except Exception as log_err:
+            logger.warning(f"Failed to record sightings automatically: {log_err}")
+
         return results
     except FileNotFoundError as fnf:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(fnf))
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+# ============================================================
+# WILDLIFE SIGHTINGS INTELLIGENCE ENDPOINTS (PHASE 2)
+# ============================================================
+
+@app.get("/api/sightings", response_model=List[SightingItem])
+def list_sightings(
+    species: Optional[str] = Query(None, description="Filter by species or common name (e.g. 'African Elephant', 'Lion', or 'all')"),
+    max_age_hours: Optional[float] = Query(None, ge=0.1, le=720.0, description="Max age in hours (e.g. 1.0 for last hour, 24.0 for last day)"),
+    limit: int = Query(100, ge=1, le=500, description="Max sightings to return"),
+):
+    """Retrieve geo-located wildlife sightings from SQLite database with species & age filtering."""
+    return get_sightings(species=species, max_age_hours=max_age_hours, limit=limit)
+
+
+@app.post("/api/sightings", response_model=SightingItem)
+def create_sighting(payload: SightingCreate):
+    """Record a verified wildlife sighting with GPS coordinates and observation metadata."""
+    record = record_sighting(payload.model_dump())
+    return record
+
+
+@app.get("/api/sightings/stats", response_model=SightingStatsResponse)
+def sightings_stats():
+    """Retrieve statistical summary of wildlife sightings across Hwange National Park."""
+    return get_sighting_stats()
+
+
+@app.post("/api/sightings/estimate-location")
+def estimate_location(
+    drone_lat: float = Query(..., description="Drone latitude"),
+    drone_lng: float = Query(..., description="Drone longitude"),
+    drone_alt_m: float = Query(80.0, description="Drone altitude above ground in meters"),
+    heading_deg: float = Query(0.0, description="Drone / camera heading in degrees (0-360)"),
+    gimbal_pitch_deg: float = Query(-45.0, description="Camera gimbal pitch (-90 straight down to -10)"),
+    bbox_x: float = Query(0.5, description="Normalized bounding box center X (0.0 - 1.0)"),
+    bbox_y: float = Query(0.5, description="Normalized bounding box center Y (0.0 - 1.0)"),
+):
+    """Calculate projected ground GPS coordinates for a detected animal bounding box."""
+    return estimate_animal_ground_location(
+        drone_lat=drone_lat,
+        drone_lng=drone_lng,
+        drone_alt_m=drone_alt_m,
+        heading_deg=heading_deg,
+        gimbal_pitch_deg=gimbal_pitch_deg,
+        bbox_center_x=bbox_x,
+        bbox_center_y=bbox_y,
+    )
+
+
+# ============================================================
+# WILDLIFE INTELLIGENCE & ANALYTICS ENDPOINTS (PHASE 4)
+# ============================================================
+
+@app.get("/api/analytics/summary")
+def analytics_summary():
+    """Aggregate wildlife census, species breakdown, and sector spatial density accounting for survey effort."""
+    return get_analytics_summary()
+
+
+@app.get("/api/analytics/predictive-occurrence")
+def predictive_occurrence(
+    hour: Optional[int] = Query(None, ge=0, le=23, description="Hour of day (0-23) to evaluate occurrence probability")
+):
+    """Predictive species occurrence probabilities based on circadian biological cycles and water-dependency."""
+    return get_predictive_occurrence(hour=hour)
+
+
+@app.get("/api/analytics/report")
+def wildlife_report(
+    report_type: str = Query("daily", pattern="^(daily|weekly)$", description="Report interval ('daily' or 'weekly')")
+):
+    """Generate executive daily or weekly wildlife intelligence briefing report."""
+    return generate_wildlife_report(report_type=report_type)
 
 
 @app.get("/api/output/{filename}")

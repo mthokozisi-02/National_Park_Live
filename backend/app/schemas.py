@@ -9,6 +9,7 @@ class BoundingBox(BaseModel):
 
 class DetectionItem(BaseModel):
     id: str
+    track_id: Optional[int] = Field(None, description="Persistent ByteTrack ID across video frames")
     frame: int
     timestamp_sec: float
     species: Optional[str] = Field(None, description="Scientific or model species name if known")
@@ -24,8 +25,11 @@ class DetectionResponse(BaseModel):
     duration_seconds: float
     total_frame_detections: Optional[int] = Field(None, description="Total animal bounding box detections across evaluated frames")
     detections: int = Field(..., description="Total detections count")
+    unique_individuals: Optional[int] = Field(None, description="Total unique tracked individuals (deduplicated across frames)")
+    species_unique_counts: Dict[str, int] = Field(default_factory=dict, description="Unique individuals count per species")
     species_frame_counts: Dict[str, int] = Field(default_factory=dict, description="Detections per species across frames")
     species_counts: Dict[str, int] = Field(default_factory=dict, description="Detections per species dictionary")
+    inference_speed_ms: Optional[float] = Field(None, description="Average YOLO inference latency per frame in milliseconds")
     output_video: str
     output_url: str
     sample_detections: List[DetectionItem] = Field(default_factory=list)
@@ -38,3 +42,42 @@ class HealthResponse(BaseModel):
     model_loaded: Optional[bool] = Field(True, description="Whether the model is loaded")
     supported_classes: List[str] = Field(default_factory=list)
     error: Optional[str] = None
+
+class SightingItem(BaseModel):
+    id: str
+    species: str
+    common_name: str
+    confidence: float
+    count: int = 1
+    latitude: float
+    longitude: float
+    altitude_m: Optional[float] = None
+    timestamp: str
+    source_video: Optional[str] = None
+    source_frame: Optional[int] = None
+    track_id: Optional[int] = None
+    notes: Optional[str] = None
+
+class SightingCreate(BaseModel):
+    species: str
+    common_name: str
+    confidence: float = 0.9
+    count: int = 1
+    latitude: float
+    longitude: float
+    altitude_m: Optional[float] = 1000.0
+    source_video: Optional[str] = None
+    source_frame: Optional[int] = None
+    track_id: Optional[int] = None
+    notes: Optional[str] = None
+
+class SpeciesBreakdownItem(BaseModel):
+    common_name: str
+    sighting_count: int
+    animal_count: int
+
+class SightingStatsResponse(BaseModel):
+    total_sightings: int
+    total_animals: int
+    species_breakdown: List[SpeciesBreakdownItem]
+    latest_sighting: Optional[str] = None

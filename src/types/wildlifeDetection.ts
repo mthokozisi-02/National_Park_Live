@@ -11,6 +11,7 @@ export interface ModelBoundingBox {
 
 export interface ModelDetectionItem {
   id: string;
+  track_id?: number | null;
   frame: number;
   timestamp_sec: number;
   species?: string | null;
@@ -27,8 +28,11 @@ export interface ModelDetectionResponse {
   duration_seconds: number;
   total_frame_detections: number;
   detections: number; // backward compatibility alias
+  unique_individuals?: number;
+  species_unique_counts?: Record<string, number>;
   species_frame_counts: Record<string, number>;
   species_counts: Record<string, number>; // backward compatibility alias
+  inference_speed_ms?: number;
   output_video: string;
   output_url: string;
   sample_detections: ModelDetectionItem[];

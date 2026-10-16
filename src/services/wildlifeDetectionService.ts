@@ -162,17 +162,42 @@ export const wildlifeDetectionService = {
     const widthPct = item.box.width <= 1 ? item.box.width * 100 : item.box.width;
     const heightPct = item.box.height <= 1 ? item.box.height * 100 : item.box.height;
 
-    const isElephant = item.common_name.toLowerCase().includes('elephant');
-    const isGiraffe = item.common_name.toLowerCase().includes('giraffe');
-    const isZebra = item.common_name.toLowerCase().includes('zebra');
+    const nameLower = item.common_name.toLowerCase();
+    const isElephant = nameLower.includes('elephant');
+    const isGiraffe = nameLower.includes('giraffe');
+    const isZebra = nameLower.includes('zebra');
+    const isLion = nameLower.includes('lion');
+    const isBuffalo = nameLower.includes('buffalo');
+    const isWildebeest = nameLower.includes('wildebeest');
+    const isImpala = nameLower.includes('impala') || nameLower.includes('deer') || nameLower.includes('oryx');
 
-    const imageUrl = isElephant
-      ? 'https://images.unsplash.com/photo-1557050543-4d5f4e07ef46?auto=format&fit=crop&w=800&q=80'
-      : isGiraffe
-      ? 'https://images.unsplash.com/photo-1547721064-da6cfb341d50?auto=format&fit=crop&w=800&q=80'
-      : isZebra
-      ? 'https://images.unsplash.com/photo-1501706362039-c06b2d715385?auto=format&fit=crop&w=800&q=80'
-      : 'https://images.unsplash.com/photo-1444464666168-49d633b86797?auto=format&fit=crop&w=800&q=80';
+    let imageUrl = 'https://images.unsplash.com/photo-1444464666168-49d633b86797?auto=format&fit=crop&w=800&q=80';
+    let diet = 'Herbivore';
+    let status: 'Endangered' | 'Critically Endangered' | 'Vulnerable' | 'Near Threatened' | 'Least Concern' = 'Least Concern';
+
+    if (isElephant) {
+      imageUrl = 'https://images.unsplash.com/photo-1557050543-4d5f4e07ef46?auto=format&fit=crop&w=800&q=80';
+      status = 'Endangered';
+    } else if (isGiraffe) {
+      imageUrl = 'https://images.unsplash.com/photo-1547721064-da6cfb341d50?auto=format&fit=crop&w=800&q=80';
+      status = 'Vulnerable';
+    } else if (isZebra) {
+      imageUrl = 'https://images.unsplash.com/photo-1509728143841-416756a3eed8?auto=format&fit=crop&w=800&q=80';
+      status = 'Near Threatened';
+    } else if (isLion) {
+      imageUrl = 'https://images.unsplash.com/photo-1614027164847-1b28cfe1df60?auto=format&fit=crop&w=800&q=80';
+      diet = 'Carnivore (Apex)';
+      status = 'Vulnerable';
+    } else if (isBuffalo) {
+      imageUrl = 'https://images.unsplash.com/photo-1551972251-12070d63502a?auto=format&fit=crop&w=800&q=80';
+      status = 'Near Threatened';
+    } else if (isWildebeest) {
+      imageUrl = 'https://images.unsplash.com/photo-1516426122078-c23e76319801?auto=format&fit=crop&w=800&q=80';
+      status = 'Least Concern';
+    } else if (isImpala) {
+      imageUrl = 'https://images.unsplash.com/photo-1484406566174-9da000fda645?auto=format&fit=crop&w=800&q=80';
+      status = 'Least Concern';
+    }
 
     return {
       id: `yolo-${item.id}-${index}`,
@@ -189,9 +214,9 @@ export const wildlifeDetectionService = {
       },
       distanceFromDroneM: 90 + index * 18,
       behavior: 'Identified via YOLOv8 object detection model',
-      conservationStatus: isElephant ? 'Endangered' : isGiraffe ? 'Vulnerable' : 'Least Concern',
+      conservationStatus: status,
       habitat: 'Hwange National Park Savanna Corridor',
-      diet: 'Herbivore',
+      diet,
       description: `Target ${item.common_name} detected with ${(item.confidence * 100).toFixed(1)}% confidence in ${videoName}.`,
       funFact: `Recorded in ${totalCount} frame detection(s) during video analysis.`,
       imageUrl,

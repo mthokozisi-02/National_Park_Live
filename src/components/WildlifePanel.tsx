@@ -4,19 +4,20 @@ import React, { useState, useEffect } from 'react';
 import { WildlifeDetection } from '@/types/safari';
 import { wildlifeDetectionService } from '@/services/wildlifeDetectionService';
 import { BackendHealth, ModelDetectionResponse } from '@/types/wildlifeDetection';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  Sparkles,
-  Info,
-  Clock,
-  ChevronRight,
-  X,
-  Cpu,
-  Play,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
-  Video
-} from 'lucide-react';
+  faPaw,
+  faCircleInfo,
+  faClock,
+  faChevronRight,
+  faXmark,
+  faMicrochip,
+  faPlay,
+  faCircleNotch,
+  faCircleCheck,
+  faTriangleExclamation,
+  faVideo,
+} from '@fortawesome/free-solid-svg-icons';
 
 interface WildlifePanelProps {
   detections: WildlifeDetection[];
@@ -85,7 +86,7 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
     const filename = getDetectedFilename(videoName);
     const outputUrl = wildlifeDetectionService.getOutputVideoUrl(filename);
     if (onPlayVideoOnMainScreen) {
-      onPlayVideoOnMainScreen(outputUrl, `🌟 ${videoName} (YOLO Detected Stream)`);
+      onPlayVideoOnMainScreen(outputUrl, `${videoName} (YOLO Detected Stream)`);
     }
   };
 
@@ -105,14 +106,13 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
     try {
       const result = await wildlifeDetectionService.runDetection(targetVideo, {
         conf: 0.25,
-        // Full scan: omit maxFrames so backend processes all frames; Preview: cap at 100
         ...(scanMode === 'preview' ? { maxFrames: 100 } : {}),
-        frameStride: 1, // Full native framerate (no frame skipping)
+        frameStride: 1, // Full native framerate
       });
       setInferenceResult(result);
       setActiveTab('model');
 
-      // Build the output video URL and immediately play the clean detected video!
+      // Build the output video URL and immediately play the clean detected video
       if (result.output_url) {
         const outputFilename = result.output_url.split('/').pop() || '';
         const outputUrl = wildlifeDetectionService.getOutputVideoUrl(outputFilename);
@@ -122,15 +122,14 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
         const updatedOutputs = await wildlifeDetectionService.listOutputVideos();
         setOutputVideos(updatedOutputs);
 
-        // Play the clean, high-framerate YOLO detected video directly on the main screen!
+        // Play the clean, high-framerate YOLO detected video directly on the main screen
         if (onPlayVideoOnMainScreen) {
-          onPlayVideoOnMainScreen(outputUrl, `🌟 ${targetVideo} (YOLO Detected Stream)`);
+          onPlayVideoOnMainScreen(outputUrl, `${targetVideo} (YOLO Detected Stream)`);
         }
       }
 
       // Convert sample detections to WildlifeDetection objects for the HUD & catalog
       if (result.sample_detections && result.sample_detections.length > 0) {
-        // Map unique species found
         const speciesMap = new Map<string, WildlifeDetection>();
         const counts = result.species_frame_counts || result.species_counts || {};
 
@@ -160,49 +159,51 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
   return (
     <div className="flex flex-col gap-3 font-mono">
       {/* Header */}
-      <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+      <div className="flex items-center justify-between pb-2 border-b border-slate-200">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-amber-400" />
-          <span className="font-bold text-sm tracking-wide text-gray-100">
-            AI WILDLIFE SIGHTINGS
+          <FontAwesomeIcon icon={faPaw} className="w-4 h-4 text-emerald-600" />
+          <span className="font-bold text-sm tracking-wide text-slate-900">
+            WILDLIFE SIGHTINGS CATALOG
           </span>
         </div>
-        
-        {/* Backend Online / Offline Status Badge */}
+
+        {/* Backend Status Badge */}
         {backendHealth && backendHealth.model_loaded ? (
-          <span className="flex items-center gap-1.5 text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded font-semibold">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="flex items-center gap-1.5 text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded font-semibold">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             YOLO ONLINE ({backendHealth.model} • {backendHealth.device ? backendHealth.device.toUpperCase() : 'CPU'})
           </span>
         ) : (
-          <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded font-semibold">
+          <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded font-semibold">
             SIMULATED CATALOG
           </span>
         )}
       </div>
 
       {/* Backend Action Control Bar */}
-      <div className="bg-slate-900/90 border border-cyan-500/30 rounded-xl p-3 flex flex-col gap-2 shadow-inner">
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col gap-2 shadow-2xs">
         <div className="flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2 text-cyan-400 font-bold">
-            <Cpu className="w-4 h-4" />
-            <span>FASTAPI YOLO INFERENCE</span>
+          <div className="flex items-center gap-2 text-slate-800 font-bold">
+            <FontAwesomeIcon icon={faMicrochip} className="w-3.5 h-3.5 text-blue-600" />
+            <span>YOLO DETECTION ENGINE</span>
           </div>
-          {isCheckingBackend && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />}
+          {isCheckingBackend && (
+            <FontAwesomeIcon icon={faCircleNotch} className="w-3.5 h-3.5 animate-spin text-slate-400" />
+          )}
         </div>
 
-        <p className="text-[11px] text-gray-400 leading-snug">
-          Run the Ultralytics YOLOv8 neural network against sample safari video footage to detect live wildlife with real bounding boxes.
+        <p className="text-[11px] text-slate-600 leading-snug font-sans">
+          Run the Ultralytics YOLOv8 neural network against aerial video footage to detect wildlife and track individuals.
         </p>
 
         <div className="flex flex-col gap-2.5 pt-1">
-          {/* Video Selection Dropdown - Always Available */}
+          {/* Video Selection Dropdown */}
           <div className="flex flex-col gap-1">
-            <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-cyan-400">
-                <Video className="w-3.5 h-3.5" /> SELECT VIDEO FOOTAGE:
+            <label className="text-[10px] text-slate-600 font-bold uppercase tracking-wider flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-slate-700">
+                <FontAwesomeIcon icon={faVideo} className="w-3 h-3 text-slate-500" /> SELECT VIDEO FOOTAGE:
               </span>
-              <span className="text-[9px] text-gray-500 font-mono">
+              <span className="text-[9px] text-slate-500 font-mono">
                 {availableVideos.length} videos available
               </span>
             </label>
@@ -218,13 +219,13 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
                 }
               }}
               disabled={isInferring}
-              className="w-full bg-slate-950 border border-slate-700 hover:border-cyan-500 text-gray-200 px-2.5 py-1.5 rounded text-xs font-mono focus:outline-none cursor-pointer disabled:opacity-50"
+              className="w-full bg-white border border-slate-300 hover:border-slate-400 text-slate-800 px-2.5 py-1.5 rounded text-xs font-mono focus:outline-none focus:border-emerald-600 cursor-pointer disabled:opacity-50 shadow-2xs"
             >
               {availableVideos.map((v) => {
                 const detected = isDetectedAvailable(v);
                 return (
                   <option key={v} value={v}>
-                    {detected ? `🌟 ${v} (✓ Clean AI Detected Video Ready)` : v}
+                    {detected ? `${v} (✓ Detected Video Available)` : v}
                   </option>
                 );
               })}
@@ -237,32 +238,32 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
               <div className="flex flex-col gap-1.5">
                 <button
                   onClick={() => handlePlayAnnotatedOnMainScreen(selectedVideo)}
-                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-110 text-black font-black py-2.5 px-3 rounded-lg text-xs transition-all shadow-lg shadow-amber-500/25 cursor-pointer"
+                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-3 rounded-lg text-xs transition-all shadow-xs cursor-pointer"
                 >
-                  <Sparkles className="w-4 h-4 fill-current text-black" />
-                  <span>▶ PLAY CLEAN AI DETECTED VIDEO ON MAIN SCREEN</span>
+                  <FontAwesomeIcon icon={faPlay} className="w-3.5 h-3.5" />
+                  <span>PLAY DETECTED VIDEO ON MAIN SCREEN</span>
                 </button>
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => handlePlayRawOnMainScreen(selectedVideo)}
-                    className="flex-1 flex items-center justify-center gap-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-gray-300 font-semibold py-1.5 px-2 rounded text-[11px] transition-all cursor-pointer"
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-semibold py-1.5 px-2 rounded text-[11px] transition-all cursor-pointer shadow-2xs"
                   >
-                    <Video className="w-3.5 h-3.5 text-gray-400" />
+                    <FontAwesomeIcon icon={faVideo} className="w-3 h-3 text-slate-500" />
                     <span>Play Raw Video</span>
                   </button>
                   <button
                     onClick={() => handleRunInference()}
                     disabled={isInferring || !backendHealth}
-                    className="flex-1 flex items-center justify-center gap-1 bg-slate-850 hover:bg-slate-800 border border-slate-700 hover:border-amber-500/50 text-amber-300 font-bold py-1.5 px-2 rounded text-[11px] transition-all disabled:opacity-50 cursor-pointer"
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-semibold py-1.5 px-2 rounded text-[11px] transition-all disabled:opacity-50 cursor-pointer shadow-2xs"
                   >
                     {isInferring ? (
                       <>
-                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <FontAwesomeIcon icon={faCircleNotch} className="w-3 h-3 animate-spin text-slate-500" />
                         <span>Re-Scanning...</span>
                       </>
                     ) : (
                       <>
-                        <Cpu className="w-3 h-3 text-amber-400" />
+                        <FontAwesomeIcon icon={faMicrochip} className="w-3 h-3 text-slate-500" />
                         <span>Re-Scan Full Video</span>
                       </>
                     )}
@@ -274,25 +275,25 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
                 <button
                   onClick={() => handleRunInference()}
                   disabled={isInferring || !backendHealth}
-                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:brightness-110 text-black font-black py-2.5 px-3 rounded-lg text-xs transition-all shadow-lg cursor-pointer"
+                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-3 rounded-lg text-xs transition-all shadow-xs cursor-pointer disabled:opacity-50"
                 >
                   {isInferring ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin text-black" />
-                      <span>GENERATING FULL-FRAMERATE AI DETECTED VIDEO...</span>
+                      <FontAwesomeIcon icon={faCircleNotch} className="w-3.5 h-3.5 animate-spin" />
+                      <span>PROCESSING VIDEO INFERENCE...</span>
                     </>
                   ) : (
                     <>
-                      <Sparkles className="w-4 h-4 fill-current text-black" />
-                      <span>⚡ SCAN & GENERATE CLEAN AI DETECTED VIDEO</span>
+                      <FontAwesomeIcon icon={faMicrochip} className="w-3.5 h-3.5" />
+                      <span>SCAN & DETECT WILDLIFE IN VIDEO</span>
                     </>
                   )}
                 </button>
                 <button
                   onClick={() => handlePlayRawOnMainScreen(selectedVideo)}
-                  className="w-full flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-gray-300 font-semibold py-1.5 px-3 rounded text-[11px] transition-all cursor-pointer"
+                  className="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-semibold py-1.5 px-3 rounded text-[11px] transition-all cursor-pointer shadow-2xs"
                 >
-                  <Video className="w-3.5 h-3.5 text-gray-400" />
+                  <FontAwesomeIcon icon={faVideo} className="w-3 h-3 text-slate-500" />
                   <span>Play Raw Video</span>
                 </button>
               </div>
@@ -301,61 +302,79 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
 
           {/* Inference Result Summary Banner */}
           {inferenceResult && (
-            <div className="bg-emerald-950/40 border border-emerald-500/40 rounded p-2 text-[10px] text-gray-300 flex flex-col gap-1">
-              <div className="flex items-center justify-between text-emerald-400 font-bold">
-                <span className="flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> YOLO INFERENCE COMPLETE
+            <div className="bg-emerald-50 border border-emerald-200 rounded p-2.5 text-[10px] text-slate-700 flex flex-col gap-1.5 shadow-2xs">
+              <div className="flex items-center justify-between text-emerald-800 font-bold">
+                <span className="flex items-center gap-1.5">
+                  <FontAwesomeIcon icon={faCircleCheck} className="w-3 h-3 text-emerald-600" /> YOLO INFERENCE COMPLETE
                 </span>
                 <span>{inferenceResult.frames_processed} frames ({inferenceResult.duration_seconds}s)</span>
               </div>
+
+              {inferenceResult.inference_speed_ms !== undefined && (
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-slate-600">Inference Speed:</span>
+                  <span className="text-slate-900 font-bold">
+                    {inferenceResult.inference_speed_ms} ms/frame ({Math.round(1000 / (inferenceResult.inference_speed_ms || 1))} FPS)
+                  </span>
+                </div>
+              )}
+
+              {inferenceResult.unique_individuals !== undefined && (
+                <div className="flex items-center justify-between text-[10px] bg-emerald-100/70 px-2 py-0.5 rounded border border-emerald-300">
+                  <span className="text-emerald-900 font-bold">Unique Individuals (ByteTrack):</span>
+                  <span className="text-emerald-900 font-black text-xs">
+                    {inferenceResult.unique_individuals} animals
+                  </span>
+                </div>
+              )}
+
               <div className="flex items-center justify-between">
                 <span>Total Frame Detections:</span>
-                <span className="text-amber-300 font-semibold">
+                <span className="text-slate-900 font-semibold">
                   {inferenceResult.total_frame_detections ?? inferenceResult.detections}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span>Detections by Class:</span>
-                <span className="text-amber-300 font-semibold">
-                  {Object.entries(inferenceResult.species_frame_counts || inferenceResult.species_counts || {})
+                <span>Unique by Species:</span>
+                <span className="text-slate-900 font-semibold">
+                  {Object.entries(inferenceResult.species_unique_counts || inferenceResult.species_frame_counts || inferenceResult.species_counts || {})
                     .map(([k, v]) => `${k} (${v})`)
                     .join(', ') || 'None'}
                 </span>
               </div>
 
-
-              <div className="text-[9px] text-gray-400 italic pt-0.5 border-t border-emerald-900/40">
-                * Frame detections count appearances across evaluated frames.
+              <div className="text-[9px] text-slate-500 italic pt-0.5 border-t border-emerald-200">
+                * Deduplicated using ByteTrack persistent object ID tracking.
               </div>
             </div>
           )}
 
           {inferenceError && (
-            <div className="bg-red-950/40 border border-red-500/40 rounded p-2 text-[10px] text-red-300 flex items-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+            <div className="bg-red-50 border border-red-200 rounded p-2 text-[10px] text-red-700 flex items-center gap-1.5 shadow-2xs">
+              <FontAwesomeIcon icon={faTriangleExclamation} className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
               <span>{inferenceError}</span>
             </div>
           )}
 
           {/* Backend Offline Guidance Card */}
           {!backendHealth && (
-            <div className="bg-slate-950/90 border border-amber-500/30 rounded p-2 text-[10px] text-gray-300 flex flex-col gap-1.5">
+            <div className="bg-amber-50 border border-amber-200 rounded p-2 text-[10px] text-amber-900 flex flex-col gap-1.5 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-amber-300 font-bold flex items-center gap-1">
-                  <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-amber-800 font-bold flex items-center gap-1.5">
+                  <FontAwesomeIcon icon={faTriangleExclamation} className="w-3.5 h-3.5 text-amber-600" />
                   FastAPI Backend Offline
                 </span>
                 <button
                   onClick={checkBackendStatus}
-                  className="text-[9px] bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 px-2 py-0.5 rounded border border-amber-500/40 font-bold cursor-pointer"
+                  className="text-[9px] bg-white hover:bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-300 font-bold cursor-pointer"
                 >
                   Retry Connect
                 </button>
               </div>
-              <p className="text-[10px] text-gray-400">
+              <p className="text-[10px] text-amber-800/80 font-sans">
                 Real-time video plays in the main display. To enable custom YOLO batch export, start your backend:
               </p>
-              <code className="text-amber-200 bg-black/60 px-1.5 py-0.5 rounded font-mono text-[9px] select-all">
+              <code className="text-slate-800 bg-white/90 border border-amber-200 px-1.5 py-0.5 rounded font-mono text-[9px] select-all">
                 .\backend\.venv\Scripts\uvicorn.exe app.main:app --port 8000
               </code>
             </div>
@@ -369,87 +388,87 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
           <div
             key={animal.id}
             onClick={() => onSelectAnimal(animal)}
-            className="group bg-slate-900/80 hover:bg-slate-850 border border-slate-800 hover:border-amber-500/60 p-3 rounded-xl transition-all cursor-pointer flex items-center justify-between shadow-sm"
+            className="group bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 p-3 rounded-xl transition-all cursor-pointer flex items-center justify-between shadow-2xs"
           >
             <div className="flex items-center gap-3">
-              <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-slate-700 group-hover:border-amber-400 flex-shrink-0">
+              <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-slate-200 group-hover:border-slate-300 flex-shrink-0">
                 <img
                   src={animal.imageUrl}
                   alt={animal.commonName}
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 />
-                <span className="absolute bottom-0 right-0 bg-black/80 text-[8px] text-amber-300 px-1 font-bold">
+                <span className="absolute bottom-0 right-0 bg-slate-900/80 text-[8px] text-white px-1 font-bold">
                   x{animal.count}
                 </span>
               </div>
 
               <div>
                 <div className="flex items-center gap-1.5">
-                  <span className="font-bold text-gray-200 text-xs group-hover:text-amber-300 transition-colors">
+                  <span className="font-bold text-slate-900 text-xs group-hover:text-emerald-700 transition-colors">
                     {animal.commonName}
                   </span>
-                  <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 rounded">
+                  <span className="text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1 rounded font-semibold">
                     {(animal.confidence * 100).toFixed(0)}%
                   </span>
                   {animal.source === 'model' && (
-                    <span className="text-[8px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 px-1 rounded font-bold">
+                    <span className="text-[8px] bg-blue-50 text-blue-700 border border-blue-200 px-1 rounded font-bold">
                       YOLO
                     </span>
                   )}
                 </div>
-                <div className="text-[10px] text-gray-400 italic">
+                <div className="text-[10px] text-slate-500 italic">
                   {animal.scientificName}
                 </div>
-                <div className="flex items-center gap-2 text-[9px] text-gray-500 mt-1">
-                  <span className="flex items-center gap-0.5">
-                    <Clock className="w-2.5 h-2.5" /> {animal.timestamp}
+                <div className="flex items-center gap-2 text-[9px] text-slate-500 mt-1">
+                  <span className="flex items-center gap-1">
+                    <FontAwesomeIcon icon={faClock} className="w-2.5 h-2.5 text-slate-400" /> {animal.timestamp}
                   </span>
                   <span>•</span>
                   <span>Dist: {animal.distanceFromDroneM}m</span>
                   <span>•</span>
-                  <span className="text-amber-400/90">{animal.conservationStatus}</span>
+                  <span className="text-amber-700 font-medium">{animal.conservationStatus}</span>
                 </div>
               </div>
             </div>
 
-            <ChevronRight className="w-4 h-4 text-gray-600 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all" />
+            <FontAwesomeIcon icon={faChevronRight} className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-700 group-hover:translate-x-0.5 transition-all" />
           </div>
         ))}
       </div>
 
       {/* Selected Wildlife Encyclopedia Modal */}
       {selectedAnimal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="bg-slate-900 border border-amber-500/40 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl relative font-sans text-gray-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl relative font-sans text-slate-800">
             {/* Modal Image Header */}
-            <div className="relative h-48 w-full">
+            <div className="relative h-48 w-full bg-slate-950">
               <img
                 src={selectedAnimal.imageUrl}
                 alt={selectedAnimal.commonName}
                 className="w-full h-full object-cover"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
               <button
                 onClick={() => onSelectAnimal(null)}
-                className="absolute top-3 right-3 bg-black/60 hover:bg-black/90 text-white p-1.5 rounded-full border border-white/20 transition-colors cursor-pointer"
+                className="absolute top-3 right-3 bg-black/60 hover:bg-black/90 text-white w-7 h-7 rounded-full flex items-center justify-center border border-white/20 transition-colors cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <FontAwesomeIcon icon={faXmark} className="w-3.5 h-3.5" />
               </button>
 
-              <div className="absolute bottom-3 left-4 right-4">
+              <div className="absolute bottom-3 left-4 right-4 text-white">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="bg-amber-500 text-black font-bold text-xs px-2 py-0.5 rounded font-mono flex items-center gap-1">
-                    <Cpu className="w-3 h-3" />
-                    {selectedAnimal.source === 'model' ? 'YOLOv8 MODEL' : 'SIMULATED AI'} • {(selectedAnimal.confidence * 100).toFixed(0)}%
+                  <span className="bg-emerald-600 text-white font-bold text-xs px-2 py-0.5 rounded font-mono flex items-center gap-1.5 shadow-xs">
+                    <FontAwesomeIcon icon={faMicrochip} className="w-3 h-3" />
+                    {selectedAnimal.source === 'model' ? 'YOLOv8 MODEL' : 'SIMULATED'} • {(selectedAnimal.confidence * 100).toFixed(0)}%
                   </span>
-                  <span className="bg-red-500/20 text-red-300 border border-red-500/40 text-[10px] px-2 py-0.5 rounded font-mono">
+                  <span className="bg-red-500/80 text-white text-[10px] px-2 py-0.5 rounded font-mono font-semibold">
                     {selectedAnimal.conservationStatus}
                   </span>
                 </div>
-                <h3 className="text-xl font-bold text-white tracking-tight">
+                <h3 className="text-xl font-bold tracking-tight">
                   {selectedAnimal.commonName}
                 </h3>
-                <p className="text-xs text-amber-200/90 italic font-mono">
+                <p className="text-xs text-slate-300 italic font-mono">
                   {selectedAnimal.scientificName} • Source: {selectedAnimal.source.toUpperCase()} ({selectedAnimal.modelVersion || 'YOLOv8n'})
                 </p>
               </div>
@@ -458,56 +477,56 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
             {/* Modal Body */}
             <div className="p-5 flex flex-col gap-3.5 max-h-[60vh] overflow-y-auto">
               <div>
-                <h4 className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-wider mb-1">
+                <h4 className="text-xs font-mono font-bold text-slate-700 uppercase tracking-wider mb-1">
                   Observed Behavior & Real-time Context
                 </h4>
-                <p className="text-sm text-gray-300 leading-relaxed bg-slate-950/60 p-3 rounded-lg border border-slate-800">
+                <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-200">
                   {selectedAnimal.behavior}
                 </p>
               </div>
 
               <div>
-                <h4 className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-wider mb-1">
+                <h4 className="text-xs font-mono font-bold text-slate-700 uppercase tracking-wider mb-1">
                   Ecosystem Role in Hwange
                 </h4>
-                <p className="text-sm text-gray-300 leading-relaxed">
+                <p className="text-sm text-slate-600 leading-relaxed">
                   {selectedAnimal.description}
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
-                  <span className="text-gray-400 block text-[10px]">DIET</span>
-                  <span className="text-emerald-300 font-semibold">{selectedAnimal.diet}</span>
+                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                  <span className="text-slate-500 block text-[10px] font-semibold">DIET</span>
+                  <span className="text-slate-800 font-semibold">{selectedAnimal.diet}</span>
                 </div>
-                <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
-                  <span className="text-gray-400 block text-[10px]">HABITAT</span>
-                  <span className="text-cyan-300 font-semibold">{selectedAnimal.habitat}</span>
+                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                  <span className="text-slate-500 block text-[10px] font-semibold">HABITAT</span>
+                  <span className="text-slate-800 font-semibold">{selectedAnimal.habitat}</span>
                 </div>
               </div>
 
-              <div className="bg-amber-500/10 border border-amber-500/30 p-3 rounded-lg text-xs">
-                <div className="flex items-center gap-1.5 font-bold text-amber-300 mb-1">
-                  <Info className="w-3.5 h-3.5" />
+              <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-xs">
+                <div className="flex items-center gap-1.5 font-bold text-amber-800 mb-1">
+                  <FontAwesomeIcon icon={faCircleInfo} className="w-3.5 h-3.5" />
                   <span>DID YOU KNOW?</span>
                 </div>
-                <p className="text-amber-100/90 leading-relaxed">
+                <p className="text-amber-900 leading-relaxed font-sans">
                   {selectedAnimal.funFact}
                 </p>
               </div>
 
-              <div className="text-[10px] text-gray-500 font-mono italic">
+              <div className="text-[10px] text-slate-500 font-mono italic">
                 {selectedAnimal.source === 'model'
                   ? '* Detections generated by Ultralytics YOLOv8 object recognition model directly from video frames.'
-                  : '* Note: Wildlife metadata and detections are currently simulated demonstration values to showcase prospective computer vision cataloging before deploying real aerial models.'}
+                  : '* Note: Wildlife metadata and detections are currently simulated demonstration values to showcase computer vision cataloging.'}
               </div>
             </div>
 
             {/* Footer */}
-            <div className="p-4 bg-slate-950 border-t border-slate-800 flex justify-end">
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
               <button
                 onClick={() => onSelectAnimal(null)}
-                className="bg-cyan-500 hover:bg-cyan-400 text-black font-bold px-4 py-1.5 rounded-lg text-xs font-mono transition-colors cursor-pointer"
+                className="bg-slate-800 hover:bg-slate-900 text-white font-bold px-4 py-1.5 rounded-lg text-xs font-mono transition-colors cursor-pointer"
               >
                 CLOSE BIO
               </button>

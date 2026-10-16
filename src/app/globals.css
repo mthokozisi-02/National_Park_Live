@@ -2,8 +2,8 @@
 @import "leaflet/dist/leaflet.css";
 
 :root {
-  --background: #090d10;
-  --foreground: #f3f4f6;
+  --background: #f8fafc;
+  --foreground: #0f172a;
 }
 
 body {
@@ -13,20 +13,20 @@ body {
   overflow-x: hidden;
 }
 
-/* Custom Tactical HUD animations and scrollbars */
+/* Custom Light Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0d1318;
+  background: #f1f5f9;
 }
 ::-webkit-scrollbar-thumb {
-  background: #223544;
+  background: #cbd5e1;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #38bdf8;
+  background: #94a3b8;
 }
 
 .radar-scan {
@@ -38,24 +38,9 @@ body {
   100% { transform: rotate(360deg); }
 }
 
-.hud-glow {
-  text-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
-}
-
-.hud-amber-glow {
-  text-shadow: 0 0 10px rgba(245, 158, 11, 0.6);
-}
-
-.hud-green-glow {
-  text-shadow: 0 0 10px rgba(34, 197, 94, 0.6);
-}
-
-/* Leaflet dark theme map filter */
+/* Leaflet clean light theme map */
 .leaflet-container {
-  background: #0f172a !important;
+  background: #f8fafc !important;
   font-family: inherit;
-}
-.dark-map .leaflet-tile {
-  filter: brightness(0.75) invert(1) contrast(3) hue-rotate(200deg) saturate(0.35) brightness(0.7);
 }
 
