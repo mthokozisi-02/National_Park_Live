@@ -4,8 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   INITIAL_TELEMETRY,
   CAMERA_STREAMS,
-  MAP_FEATURES,
-  MOCK_WILDLIFE_CATALOG
+  MAP_FEATURES
 } from '@/data/mockSafariData';
 import {
   DroneTelemetry,
@@ -15,6 +14,8 @@ import {
 } from '@/types/safari';
 import { WildlifeSighting } from '@/types/sightings';
 import { sightingsService } from '@/services/sightingsService';
+import { wildlifeDetectionService } from '@/services/wildlifeDetectionService';
+import { BackendHealth } from '@/types/wildlifeDetection';
 import { SafariVideoPlayer } from '@/components/SafariVideoPlayer';
 import { TelemetryPanel } from '@/components/TelemetryPanel';
 import { SafariMap } from '@/components/SafariMap';
@@ -37,7 +38,7 @@ export default function SafariVisionApp() {
   const [simulationMode, setSimulationMode] = useState<SimulationMode>('automatic');
   const [currentStream, setCurrentStream] = useState<SafariCameraStream>(CAMERA_STREAMS[0]);
   const [selectedAnimal, setSelectedAnimal] = useState<WildlifeDetection | null>(null);
-  const [wildlifeDetections, setWildlifeDetections] = useState<WildlifeDetection[]>(MOCK_WILDLIFE_CATALOG);
+  const [wildlifeDetections, setWildlifeDetections] = useState<WildlifeDetection[]>([]);
   const [showAiVision, setShowAiVision] = useState<boolean>(true);
   const [showThermal, setShowThermal] = useState<boolean>(false);
   const [isVrActive, setIsVrActive] = useState<boolean>(false);
@@ -48,9 +49,12 @@ export default function SafariVisionApp() {
     sightingsService.filterFallbackSightings()
   );
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
+  const [isInferring, setIsInferring] = useState<boolean>(false);
 
-  // Load sightings and driver location on mount
+  // Load backend status, sightings, and driver location on mount
   useEffect(() => {
+    wildlifeDetectionService.checkHealth().then(setBackendHealth);
     sightingsService.getSightings().then((fetched) => {
       if (fetched && fetched.length > 0) {
         setSightings(fetched);
@@ -91,11 +95,66 @@ export default function SafariVisionApp() {
     setCurrentStream(cleanStream);
   };
 
+  const handleRunInference = async (videoName?: string) => {
+    const targetVideo = videoName || currentStream.videoUrl.split('/').pop() || 'final_test.mp4';
+    setIsInferring(true);
+    try {
+      const result = await wildlifeDetectionService.runDetection(targetVideo, {
+        conf: 0.25,
+        frameStride: 1,
+      });
+
+      if (result.output_url) {
+        const outputFilename = result.output_url.split('/').pop() || '';
+        const outputUrl = wildlifeDetectionService.getOutputVideoUrl(outputFilename);
+        handlePlayVideoOnMainScreen(outputUrl, `${targetVideo} (YOLO Detected Stream)`);
+      }
+
+      if (result.sample_detections && result.sample_detections.length > 0) {
+        const speciesMap = new Map<string, WildlifeDetection>();
+        const counts = result.species_frame_counts || result.species_counts || {};
+
+        result.sample_detections.forEach((det, idx) => {
+          if (!speciesMap.has(det.common_name)) {
+            const animal = wildlifeDetectionService.convertToWildlifeDetection(
+              det,
+              counts[det.common_name] || 1,
+              result.video,
+              idx
+            );
+            speciesMap.set(det.common_name, animal);
+          }
+        });
+
+        handleModelDetectionsLoaded(Array.from(speciesMap.values()));
+      }
+    } catch (err) {
+      console.error('Inference error:', err);
+    } finally {
+      setIsInferring(false);
+    }
+  };
+
   const handleLiveDetectionsFound = useCallback((liveDetections: WildlifeDetection[]) => {
     if (liveDetections.length > 0) {
       setWildlifeDetections((prev) => {
         const speciesMap = new Map<string, WildlifeDetection>();
-        liveDetections.forEach((d) => speciesMap.set(d.commonName, d));
+        // Calculate true individual counts detected in this frame from best_finetuned.pt
+        const speciesCounts = new Map<string, number>();
+        liveDetections.forEach((d) => {
+          speciesCounts.set(d.commonName, (speciesCounts.get(d.commonName) || 0) + 1);
+        });
+
+        liveDetections.forEach((d) => {
+          if (!speciesMap.has(d.commonName)) {
+            speciesMap.set(d.commonName, {
+              ...d,
+              count: speciesCounts.get(d.commonName) || 1,
+            });
+          }
+        });
+
+        // Retain animals observed during this active session
         prev.forEach((d) => {
           if (!speciesMap.has(d.commonName)) {
             speciesMap.set(d.commonName, d);
@@ -257,12 +316,44 @@ export default function SafariVisionApp() {
               mapFeatures={MAP_FEATURES}
               activeDestination={activeDestination}
               onClearDestination={() => setActiveDestination(null)}
-              onSelectSighting={(s) => setActiveDestination(s)}
+              onSelectSighting={(s) => {
+                setActiveDestination(s);
+                const match = wildlifeDetections.find(
+                  (w) =>
+                    w.id === s.id ||
+                    w.commonName.toLowerCase().includes(s.common_name.toLowerCase()) ||
+                    s.common_name.toLowerCase().includes(w.commonName.toLowerCase())
+                );
+                if (match) setSelectedAnimal(match);
+              }}
               onSelectFeature={(feat) => {
                 if (feat.type === 'wildlife') {
-                  const match = MOCK_WILDLIFE_CATALOG.find((w) =>
-                    feat.title.toLowerCase().includes(w.commonName.toLowerCase().split(' ')[0])
+                  // 1. Stable sightingId or animal ID match
+                  let match = wildlifeDetections.find(
+                    (w) => w.id === feat.sightingId || w.id === feat.id
                   );
+                  // 2. Explicit speciesKey match
+                  if (!match && feat.speciesKey) {
+                    match = wildlifeDetections.find((w) =>
+                      w.commonName.toLowerCase().includes(feat.speciesKey!.toLowerCase())
+                    );
+                  }
+                  // 3. Taxonomic root matching
+                  if (!match) {
+                    const titleLower = feat.title.toLowerCase();
+                    const speciesRoots = ['elephant', 'giraffe', 'lion', 'zebra', 'buffalo', 'impala', 'wildebeest', 'bird'];
+                    const matchedRoot = speciesRoots.find((root) => titleLower.includes(root));
+                    if (matchedRoot) {
+                      match = wildlifeDetections.find((w) =>
+                        w.commonName.toLowerCase().includes(matchedRoot)
+                      );
+                    }
+                  }
+                  // 4. Also route destination to linked sighting if present
+                  const linkedSighting = sightings.find(
+                    (s) => s.id === feat.sightingId || feat.title.toLowerCase().includes(s.common_name.toLowerCase())
+                  );
+                  if (linkedSighting) setActiveDestination(linkedSighting);
                   if (match) setSelectedAnimal(match);
                 }
               }}
@@ -294,6 +385,9 @@ export default function SafariVisionApp() {
               onModelDetectionsLoaded={handleModelDetectionsLoaded}
               onPlayVideoOnMainScreen={handlePlayVideoOnMainScreen}
               currentVideoName={currentStream.videoUrl.split('/').pop()}
+              backendHealth={backendHealth}
+              isInferring={isInferring}
+              onRunInference={handleRunInference}
             />
           </div>
         </div>

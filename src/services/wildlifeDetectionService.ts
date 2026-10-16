@@ -1,5 +1,5 @@
-import { BackendHealth, ModelDetectionResponse, ModelDetectionItem } from '@/types/wildlifeDetection';
-import { WildlifeDetection } from '@/types/safari';
+import type { BackendHealth, ModelDetectionResponse, ModelDetectionItem } from '../types/wildlifeDetection.ts';
+import type { WildlifeDetection } from '../types/safari.ts';
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_WILDLIFE_API_URL ||
@@ -222,7 +222,7 @@ export const wildlifeDetectionService = {
       imageUrl,
       timestamp: new Date().toLocaleTimeString(),
       source: 'model',
-      modelVersion: 'Ultralytics-YOLOv8n'
+      modelVersion: 'best_finetuned.pt'
     };
   }
 };

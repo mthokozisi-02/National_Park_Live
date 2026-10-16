@@ -107,13 +107,27 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
     let isScanning = false;
     let timerId: NodeJS.Timeout;
     let isMounted = true;
+    let initialScanDone = false;
 
     const runFrameScan = async () => {
       if (!isMounted) return;
       const video = videoRef.current;
-      if (!video || video.paused || video.ended || video.readyState < 2) {
-        timerId = setTimeout(runFrameScan, 250);
+      if (!video || video.ended || video.readyState < 2) {
+        timerId = setTimeout(runFrameScan, 200);
         return;
+      }
+
+      // If video is paused, scan the loaded frame once so real model predictions
+      // appear immediately upon loading a video without waiting for user to click play
+      if (video.paused) {
+        if (initialScanDone) {
+          timerId = setTimeout(runFrameScan, 400);
+          return;
+        }
+        initialScanDone = true;
+      } else {
+        // Continuous live scanning during playback
+        initialScanDone = false;
       }
 
       if (isScanning) {
@@ -170,11 +184,26 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
       }
     };
 
-    timerId = setTimeout(runFrameScan, 200);
+    const handleSeekedOrPlay = () => {
+      initialScanDone = false;
+    };
+    const videoElem = videoRef.current;
+    if (videoElem) {
+      videoElem.addEventListener('seeked', handleSeekedOrPlay);
+      videoElem.addEventListener('play', handleSeekedOrPlay);
+      videoElem.addEventListener('loadeddata', handleSeekedOrPlay);
+    }
+
+    timerId = setTimeout(runFrameScan, 150);
 
     return () => {
       isMounted = false;
       clearTimeout(timerId);
+      if (videoElem) {
+        videoElem.removeEventListener('seeked', handleSeekedOrPlay);
+        videoElem.removeEventListener('play', handleSeekedOrPlay);
+        videoElem.removeEventListener('loadeddata', handleSeekedOrPlay);
+      }
     };
   }, [showAiVision, isDetectedVideo, currentStream.videoUrl]);
 
@@ -352,10 +381,23 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
     ctx.fillText(`GPS FIX:   ${telemetry.latitude.toFixed(6)}°, ${telemetry.longitude.toFixed(6)}° (RTK ${telemetry.rtkStatus})`, 60, 145);
     ctx.fillText(`ALTITUDE:  ${telemetry.altitude.toFixed(1)}m AGL | AIRSPEED: ${telemetry.speed.toFixed(1)} km/h | HDG: ${Math.round(telemetry.heading)}°`, 60, 175);
 
-    // Source label (bottom-left, small)
-    const sourceLabel = snapshotSource === 'video' ? 'SOURCE: LIVE VIDEO FRAME' : 'SOURCE: PROCEDURAL CANVAS';
+    // Source label (bottom-left, small) - accurately distinguish between demo recorded footage, genuine live feeds, and procedural simulation
+    const videoBasename = currentStream.videoUrl.split('/').pop() || 'footage.mp4';
+    const isRecordedVideo =
+      currentStream.streamStatus === 'demo' ||
+      currentStream.videoUrl.startsWith('/videos/') ||
+      currentStream.videoUrl.endsWith('.mp4') ||
+      currentStream.videoUrl.endsWith('.webm');
+
+    let sourceLabel = 'SOURCE: PROCEDURAL SIMULATION';
+    if (snapshotSource === 'video') {
+      sourceLabel = isRecordedVideo
+        ? `SOURCE: RECORDED FOOTAGE (${videoBasename})`
+        : 'SOURCE: LIVE TELEMETRY STREAM';
+    }
+
     ctx.fillStyle = 'rgba(7, 13, 19, 0.7)';
-    ctx.fillRect(40, captureHeight - 60, 420, 40);
+    ctx.fillRect(40, captureHeight - 60, 560, 40);
     ctx.fillStyle = '#94a3b8';
     ctx.font = '14px monospace';
     ctx.fillText(sourceLabel, 55, captureHeight - 34);
@@ -402,8 +444,12 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
         // Defer revocation so the browser has time to consume the object URL
         setTimeout(() => URL.revokeObjectURL(url), 1000);
 
+        const sourceDesc = snapshotSource === 'video'
+          ? (isRecordedVideo ? `recorded footage (${videoBasename})` : 'live video stream')
+          : 'procedural simulation';
+
         setSnapshotStatus({
-          message: `Saved ${snapshotSource === 'video' ? 'video frame' : 'procedural frame'}: ${filename}`,
+          message: `Saved ${sourceDesc}: ${filename}`,
           isError: false,
         });
         setTimeout(() => setSnapshotStatus(null), 4000);

@@ -60,13 +60,9 @@ def convert_to_web_h264(video_path: Path) -> Path:
     return video_path
 
 # Use the trained model by default.
-# YOLO_MODEL_PATH can override this path when required.
-MODEL_PATH = Path(
-    os.getenv(
-        "YOLO_MODEL_PATH",
-        str(MODEL_DIR / "best_finetuned.pt")
-    )
-)
+# Either MODEL_PATH or YOLO_MODEL_PATH environment variable can override this path when deploying outside development.
+env_model_path = os.getenv("MODEL_PATH") or os.getenv("YOLO_MODEL_PATH")
+MODEL_PATH = Path(env_model_path) if env_model_path else (MODEL_DIR / "best_finetuned.pt")
 
 if not MODEL_PATH.is_absolute():
     MODEL_PATH = (Path.cwd() / MODEL_PATH).resolve()
@@ -78,9 +74,11 @@ if not MODEL_PATH.is_absolute():
 
 if not MODEL_PATH.is_file():
     raise FileNotFoundError(
-        f"Trained wildlife model not found: {MODEL_PATH}. "
-        "Place best.pt inside backend/models/ or configure "
-        "the YOLO_MODEL_PATH environment variable."
+        f"Trained wildlife model checkpoint not found at: '{MODEL_PATH}'.\n"
+        "Deployment Note: Large model weights (*.pt, *.pth, *.onnx) are excluded from git by default.\n"
+        "To run the detection service, ensure 'best_finetuned.pt' is present inside 'backend/models/'\n"
+        "or set the MODEL_PATH environment variable to the absolute path of the model checkpoint:\n"
+        "  export MODEL_PATH=/path/to/best_finetuned.pt"
     )
 
 model = YOLO(str(MODEL_PATH))

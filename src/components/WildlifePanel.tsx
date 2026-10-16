@@ -17,15 +17,20 @@ import {
   faCircleCheck,
   faTriangleExclamation,
   faVideo,
+  faCrosshairs,
+  faRoute,
 } from '@fortawesome/free-solid-svg-icons';
 
-interface WildlifePanelProps {
+export interface WildlifePanelProps {
   detections: WildlifeDetection[];
   selectedAnimal: WildlifeDetection | null;
   onSelectAnimal: (animal: WildlifeDetection | null) => void;
   onModelDetectionsLoaded?: (detections: WildlifeDetection[]) => void;
   onPlayVideoOnMainScreen?: (videoUrl: string, title: string) => void;
   currentVideoName?: string;
+  backendHealth?: BackendHealth | null;
+  isInferring?: boolean;
+  onRunInference?: (videoName?: string) => Promise<void> | void;
 }
 
 const DEFAULT_VIDEOS = [
@@ -45,10 +50,15 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
   onModelDetectionsLoaded,
   onPlayVideoOnMainScreen,
   currentVideoName = 'final.mp4',
+  backendHealth: propBackendHealth,
+  isInferring: propIsInferring,
+  onRunInference: propOnRunInference,
 }) => {
-  const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
-  const [isCheckingBackend, setIsCheckingBackend] = useState<boolean>(true);
-  const [isInferring, setIsInferring] = useState<boolean>(false);
+  const [internalHealth, setInternalHealth] = useState<BackendHealth | null>(null);
+  const backendHealth = propBackendHealth !== undefined ? propBackendHealth : internalHealth;
+  const [isCheckingBackend, setIsCheckingBackend] = useState<boolean>(!propBackendHealth);
+  const [internalIsInferring, setInternalIsInferring] = useState<boolean>(false);
+  const isInferring = propIsInferring !== undefined ? propIsInferring : internalIsInferring;
   const [inferenceResult, setInferenceResult] = useState<ModelDetectionResponse | null>(null);
   const [inferenceError, setInferenceError] = useState<string | null>(null);
   const [availableVideos, setAvailableVideos] = useState<string[]>(DEFAULT_VIDEOS);
@@ -61,10 +71,12 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
   // Check FastAPI backend status and fetch available input & detected output videos
   const checkBackendStatus = async () => {
     setIsCheckingBackend(true);
-    const health = await wildlifeDetectionService.checkHealth();
+    if (!propBackendHealth) {
+      const health = await wildlifeDetectionService.checkHealth();
+      setInternalHealth(health);
+    }
     const videos = await wildlifeDetectionService.listVideos();
     const outputs = await wildlifeDetectionService.listOutputVideos();
-    setBackendHealth(health);
     if (videos && videos.length > 0) {
       setAvailableVideos(Array.from(new Set([...DEFAULT_VIDEOS, ...videos])));
     }
@@ -76,7 +88,7 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
 
   useEffect(() => {
     checkBackendStatus();
-  }, []);
+  }, [propBackendHealth]);
 
   const getStem = (name: string) => name.replace(/\.[^/.]+$/, '');
   const getDetectedFilename = (videoName: string) => `${getStem(videoName)}_detected.mp4`;
@@ -98,8 +110,14 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
 
   // Trigger real YOLO detection via FastAPI
   const handleRunInference = async () => {
-    const targetVideo = selectedVideo || (availableVideos.length > 0 ? availableVideos[0] : 'safari.webm');
-    setIsInferring(true);
+    const targetVideo = selectedVideo || (availableVideos.length > 0 ? availableVideos[0] : 'final_test.mp4');
+
+    if (propOnRunInference) {
+      await propOnRunInference(targetVideo);
+      return;
+    }
+
+    setInternalIsInferring(true);
     setInferenceError(null);
     setLastOutputVideoUrl(null);
 
@@ -152,7 +170,7 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
     } catch (err: any) {
       setInferenceError(err.message || 'Detection failed');
     } finally {
-      setIsInferring(false);
+      setInternalIsInferring(false);
     }
   };
 
@@ -175,7 +193,7 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
           </span>
         ) : (
           <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded font-semibold">
-            SIMULATED CATALOG
+            BACKEND OFFLINE
           </span>
         )}
       </div>
@@ -384,56 +402,74 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
 
       {/* Sightings List */}
       <div className="flex flex-col gap-2.5 max-h-[340px] overflow-y-auto pr-1">
-        {detections.map((animal) => (
-          <div
-            key={animal.id}
-            onClick={() => onSelectAnimal(animal)}
-            className="group bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 p-3 rounded-xl transition-all cursor-pointer flex items-center justify-between shadow-2xs"
-          >
-            <div className="flex items-center gap-3">
-              <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-slate-200 group-hover:border-slate-300 flex-shrink-0">
-                <img
-                  src={animal.imageUrl}
-                  alt={animal.commonName}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                />
-                <span className="absolute bottom-0 right-0 bg-slate-900/80 text-[8px] text-white px-1 font-bold">
-                  x{animal.count}
-                </span>
-              </div>
-
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="font-bold text-slate-900 text-xs group-hover:text-emerald-700 transition-colors">
-                    {animal.commonName}
-                  </span>
-                  <span className="text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1 rounded font-semibold">
-                    {(animal.confidence * 100).toFixed(0)}%
-                  </span>
-                  {animal.source === 'model' && (
-                    <span className="text-[8px] bg-blue-50 text-blue-700 border border-blue-200 px-1 rounded font-bold">
-                      YOLO
-                    </span>
-                  )}
-                </div>
-                <div className="text-[10px] text-slate-500 italic">
-                  {animal.scientificName}
-                </div>
-                <div className="flex items-center gap-2 text-[9px] text-slate-500 mt-1">
-                  <span className="flex items-center gap-1">
-                    <FontAwesomeIcon icon={faClock} className="w-2.5 h-2.5 text-slate-400" /> {animal.timestamp}
-                  </span>
-                  <span>•</span>
-                  <span>Dist: {animal.distanceFromDroneM}m</span>
-                  <span>•</span>
-                  <span className="text-amber-700 font-medium">{animal.conservationStatus}</span>
-                </div>
-              </div>
+        {detections.length === 0 ? (
+          <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-5 text-center flex flex-col items-center justify-center gap-2 text-slate-500">
+            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+              <FontAwesomeIcon icon={faMicrochip} className="w-5 h-5 text-slate-400" />
             </div>
-
-            <FontAwesomeIcon icon={faChevronRight} className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-700 group-hover:translate-x-0.5 transition-all" />
+            <div className="font-bold text-xs text-slate-700">AWAITING LIVE INFERENCE</div>
+            <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed font-sans">
+              No mock data is displayed. Real-time predictions will stream directly from <code className="text-[10px] text-emerald-800 font-mono font-bold bg-emerald-50 px-1 py-0.5 rounded border border-emerald-200">best_finetuned.pt</code> as soon as video frames are scanned.
+            </p>
+            <button
+              onClick={() => handleRunInference()}
+              disabled={isInferring || !backendHealth}
+              className="mt-1 flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-3 rounded-lg text-xs shadow-xs transition-all cursor-pointer disabled:opacity-50"
+            >
+              <FontAwesomeIcon icon={faMicrochip} className="w-3 h-3" />
+              <span>Run YOLO Inference Now</span>
+            </button>
           </div>
-        ))}
+        ) : (
+          detections.map((animal) => (
+            <div
+              key={animal.id}
+              onClick={() => onSelectAnimal(animal)}
+              className="group bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 p-3 rounded-xl transition-all cursor-pointer flex items-center justify-between shadow-2xs"
+            >
+              <div className="flex items-center gap-3">
+                <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-slate-200 group-hover:border-slate-300 flex-shrink-0">
+                  <img
+                    src={animal.imageUrl}
+                    alt={animal.commonName}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                  <span className="absolute bottom-0 right-0 bg-slate-900/80 text-[8px] text-white px-1 font-bold">
+                    x{animal.count}
+                  </span>
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-slate-900 text-xs group-hover:text-emerald-700 transition-colors">
+                      {animal.commonName}
+                    </span>
+                    <span className="text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1 rounded font-semibold">
+                      {(animal.confidence * 100).toFixed(0)}%
+                    </span>
+                    <span className="text-[8px] bg-blue-50 text-blue-700 border border-blue-200 px-1 rounded font-bold">
+                      {animal.modelVersion || 'best_finetuned.pt'}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 italic">
+                    {animal.scientificName}
+                  </div>
+                  <div className="flex items-center gap-2 text-[9px] text-slate-500 mt-1">
+                    <span className="flex items-center gap-1">
+                      <FontAwesomeIcon icon={faClock} className="w-2.5 h-2.5 text-slate-400" /> {animal.timestamp}
+                    </span>
+                    <span>•</span>
+                    <span>Dist: {animal.distanceFromDroneM}m</span>
+                    <span>•</span>
+                    <span className="text-amber-700 font-medium">{animal.conservationStatus}</span>
+                  </div>
+                </div>
+              </div>
+
+              <FontAwesomeIcon icon={faChevronRight} className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-700 group-hover:translate-x-0.5 transition-all" />
+            </div>
+          ))
+        )}
       </div>
 
       {/* Selected Wildlife Encyclopedia Modal */}
@@ -456,12 +492,12 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
               </button>
 
               <div className="absolute bottom-3 left-4 right-4 text-white">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <span className="bg-emerald-600 text-white font-bold text-xs px-2 py-0.5 rounded font-mono flex items-center gap-1.5 shadow-xs">
                     <FontAwesomeIcon icon={faMicrochip} className="w-3 h-3" />
-                    {selectedAnimal.source === 'model' ? 'YOLOv8 MODEL' : 'SIMULATED'} • {(selectedAnimal.confidence * 100).toFixed(0)}%
+                    MODEL: {selectedAnimal.modelVersion || 'best_finetuned.pt'} • {(selectedAnimal.confidence * 100).toFixed(1)}%
                   </span>
-                  <span className="bg-red-500/80 text-white text-[10px] px-2 py-0.5 rounded font-mono font-semibold">
+                  <span className="bg-amber-600/90 text-white text-[10px] px-2 py-0.5 rounded font-mono font-semibold">
                     {selectedAnimal.conservationStatus}
                   </span>
                 </div>
@@ -469,56 +505,103 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
                   {selectedAnimal.commonName}
                 </h3>
                 <p className="text-xs text-slate-300 italic font-mono">
-                  {selectedAnimal.scientificName} • Source: {selectedAnimal.source.toUpperCase()} ({selectedAnimal.modelVersion || 'YOLOv8n'})
+                  {selectedAnimal.scientificName}
                 </p>
               </div>
             </div>
 
-            {/* Modal Body */}
+            {/* Modal Body: Three-Tier Transparent Information Architecture */}
             <div className="p-5 flex flex-col gap-3.5 max-h-[60vh] overflow-y-auto">
-              <div>
-                <h4 className="text-xs font-mono font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Observed Behavior & Real-time Context
-                </h4>
-                <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-200">
-                  {selectedAnimal.behavior}
-                </p>
-              </div>
-
-              <div>
-                <h4 className="text-xs font-mono font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Ecosystem Role in Hwange
-                </h4>
-                <p className="text-sm text-slate-600 leading-relaxed">
-                  {selectedAnimal.description}
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                  <span className="text-slate-500 block text-[10px] font-semibold">DIET</span>
-                  <span className="text-slate-800 font-semibold">{selectedAnimal.diet}</span>
+              
+              {/* TIER 1: AI MODEL DETECTIONS */}
+              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 flex flex-col gap-2 shadow-2xs">
+                <div className="flex items-center gap-2 text-emerald-950 font-bold text-xs font-mono">
+                  <FontAwesomeIcon icon={faCrosshairs} className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>TIER 1: AI MODEL PREDICTIONS ({selectedAnimal.modelVersion || 'best_finetuned.pt'})</span>
                 </div>
-                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                  <span className="text-slate-500 block text-[10px] font-semibold">HABITAT</span>
-                  <span className="text-slate-800 font-semibold">{selectedAnimal.habitat}</span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+                  <div className="bg-white p-2 rounded border border-emerald-100 shadow-2xs">
+                    <span className="text-slate-500 block text-[9px] font-semibold">DETECTED SPECIES</span>
+                    <span className="text-slate-900 font-bold text-xs">{selectedAnimal.commonName}</span>
+                  </div>
+                  <div className="bg-white p-2 rounded border border-emerald-100 shadow-2xs">
+                    <span className="text-slate-500 block text-[9px] font-semibold">CONFIDENCE</span>
+                    <span className="text-emerald-700 font-bold text-xs">{(selectedAnimal.confidence * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="bg-white p-2 rounded border border-emerald-100 shadow-2xs">
+                    <span className="text-slate-500 block text-[9px] font-semibold">B-BOX [X, Y]</span>
+                    <span className="text-slate-900 font-bold text-xs">{selectedAnimal.box.x.toFixed(1)}%, {selectedAnimal.box.y.toFixed(1)}%</span>
+                  </div>
+                  <div className="bg-white p-2 rounded border border-emerald-100 shadow-2xs">
+                    <span className="text-slate-500 block text-[9px] font-semibold">B-BOX [W, H]</span>
+                    <span className="text-slate-900 font-bold text-xs">{selectedAnimal.box.width.toFixed(1)}% × {selectedAnimal.box.height.toFixed(1)}%</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-xs">
-                <div className="flex items-center gap-1.5 font-bold text-amber-800 mb-1">
-                  <FontAwesomeIcon icon={faCircleInfo} className="w-3.5 h-3.5" />
-                  <span>DID YOU KNOW?</span>
+              {/* TIER 2: CALCULATED METRICS */}
+              <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3 flex flex-col gap-2 shadow-2xs">
+                <div className="flex items-center gap-2 text-blue-950 font-bold text-xs font-mono">
+                  <FontAwesomeIcon icon={faRoute} className="w-3.5 h-3.5 text-blue-600" />
+                  <span>TIER 2: CALCULATED METRICS (Telemetry & Vision Tracking)</span>
                 </div>
-                <p className="text-amber-900 leading-relaxed font-sans">
-                  {selectedAnimal.funFact}
-                </p>
+                <div className="grid grid-cols-3 gap-2 text-xs font-mono">
+                  <div className="bg-white p-2 rounded border border-blue-100 shadow-2xs">
+                    <span className="text-slate-500 block text-[9px] font-semibold">VISIBLE INDIVIDUALS</span>
+                    <span className="text-slate-900 font-bold text-xs">{selectedAnimal.count} animal(s)</span>
+                  </div>
+                  <div className="bg-white p-2 rounded border border-blue-100 shadow-2xs">
+                    <span className="text-slate-500 block text-[9px] font-semibold">DISTANCE FROM DRONE</span>
+                    <span className="text-slate-900 font-bold text-xs">{selectedAnimal.distanceFromDroneM}m</span>
+                  </div>
+                  <div className="bg-white p-2 rounded border border-blue-100 shadow-2xs">
+                    <span className="text-slate-500 block text-[9px] font-semibold">RECORDED TIME</span>
+                    <span className="text-slate-900 font-bold text-xs">{selectedAnimal.timestamp}</span>
+                  </div>
+                </div>
               </div>
 
-              <div className="text-[10px] text-slate-500 font-mono italic">
-                {selectedAnimal.source === 'model'
-                  ? '* Detections generated by Ultralytics YOLOv8 object recognition model directly from video frames.'
-                  : '* Note: Wildlife metadata and detections are currently simulated demonstration values to showcase computer vision cataloging.'}
+              {/* TIER 3: REFERENCE INFORMATION */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col gap-2.5 shadow-2xs">
+                <div className="flex items-center gap-2 text-slate-800 font-bold text-xs font-mono">
+                  <FontAwesomeIcon icon={faPaw} className="w-3.5 h-3.5 text-amber-600" />
+                  <span>TIER 3: REFERENCE TAXONOMY (Hwange Species Archive)</span>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                  <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
+                    <span className="text-slate-500 block text-[10px] font-semibold">DIET</span>
+                    <span className="text-slate-800 font-semibold">{selectedAnimal.diet}</span>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
+                    <span className="text-slate-500 block text-[10px] font-semibold">HABITAT</span>
+                    <span className="text-slate-800 font-semibold">{selectedAnimal.habitat}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-mono font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Ecosystem Role in Hwange
+                  </h4>
+                  <p className="text-sm text-slate-600 leading-relaxed font-sans bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
+                    {selectedAnimal.description}
+                  </p>
+                </div>
+
+                <div className="bg-amber-50/80 border border-amber-200 p-3 rounded-lg text-xs shadow-2xs">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-900 mb-1">
+                    <FontAwesomeIcon icon={faCircleInfo} className="w-3.5 h-3.5 text-amber-700" />
+                    <span>NATURAL HISTORY ARCHIVE</span>
+                  </div>
+                  <p className="text-amber-900 leading-relaxed font-sans">
+                    {selectedAnimal.funFact}
+                  </p>
+                </div>
+              </div>
+
+              {/* Data Integrity Footnote */}
+              <div className="text-[10px] text-slate-500 font-mono italic p-2 bg-slate-50 rounded border border-slate-200">
+                * Transparency Note: Detections are produced live by Ultralytics YOLOv8 ({selectedAnimal.modelVersion || 'best_finetuned.pt'}). Distance and tracking metrics are calculated from drone telemetry and spatial geometry. Taxonomy is retrieved from the Hwange Ecological Reference Archive.
               </div>
             </div>
 

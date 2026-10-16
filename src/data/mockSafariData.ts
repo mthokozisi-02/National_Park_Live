@@ -228,7 +228,9 @@ export const MAP_FEATURES: MapFeature[] = [
     title: 'Elephant Herd (6 Adults, 2 Calves)',
     subtitle: 'Direction: Westbound to Mandavu Pan',
     coordinates: [-18.6315, 26.9530],
-    icon: 'elephant'
+    icon: 'elephant',
+    sightingId: 's-ele-01',
+    speciesKey: 'elephant'
   },
   {
     id: 'feat-giraffes',
@@ -236,7 +238,9 @@ export const MAP_FEATURES: MapFeature[] = [
     title: 'Giraffe Tower (3 individuals)',
     subtitle: 'Acacia grove browsing',
     coordinates: [-18.6260, 26.9470],
-    icon: 'giraffe'
+    icon: 'giraffe',
+    sightingId: 's-gir-03',
+    speciesKey: 'giraffe'
   },
   {
     id: 'feat-lions',
@@ -244,7 +248,9 @@ export const MAP_FEATURES: MapFeature[] = [
     title: 'Sinamatella Lion Pride (4)',
     subtitle: 'Resting in shaded kopje',
     coordinates: [-18.6340, 26.9440],
-    icon: 'lion'
+    icon: 'lion',
+    sightingId: 's-lio-04',
+    speciesKey: 'lion'
   },
   {
     id: 'feat-waterhole-1',

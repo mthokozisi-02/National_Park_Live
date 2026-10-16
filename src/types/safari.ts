@@ -78,5 +78,7 @@ export interface MapFeature {
   subtitle?: string;
   coordinates: [number, number];
   icon: string;
+  sightingId?: string;
+  speciesKey?: string;
   details?: Record<string, string | number>;
 }
