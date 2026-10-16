@@ -39,6 +39,8 @@ def convert_to_web_h264(video_path: Path) -> Path:
             ffmpeg_exe, "-y",
             "-i", str(video_path),
             "-c:v", "libx264",
+            "-crf", "18",
+            "-preset", "fast",
             "-pix_fmt", "yuv420p",
             "-movflags", "+faststart",
             str(temp_h264)

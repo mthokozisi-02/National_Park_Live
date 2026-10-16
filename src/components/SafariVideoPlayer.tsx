@@ -85,9 +85,13 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
 
   // Real-time Video Frame Scanner using YOLOv8
   const scanCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isDetectedVideo =
+    currentStream.videoUrl.includes('/api/output/') ||
+    currentStream.videoUrl.includes('_detected');
 
   useEffect(() => {
-    if (!showAiVision) {
+    // If AI vision is off or video already has burned-in detections from YOLO, skip frame snapshotting
+    if (!showAiVision || isDetectedVideo) {
       if (onLiveDetectionsFound) onLiveDetectionsFound([]);
       return;
     }
@@ -449,13 +453,18 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
           </div>
         )}
 
-        {/* Real-time Live YOLO Vision Active Badge */}
-        {showAiVision && (
+        {/* Real-time Status Badge */}
+        {isDetectedVideo ? (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-black/85 backdrop-blur-md border border-amber-500/60 text-amber-300 px-3.5 py-1 rounded-full text-xs font-mono shadow-[0_0_15px_rgba(245,158,11,0.35)]">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <span className="font-bold tracking-wide">YOLO DETECTED STREAM (NATIVE HD)</span>
+          </div>
+        ) : showAiVision ? (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-black/85 backdrop-blur-md border border-cyan-500/60 text-cyan-300 px-3.5 py-1 rounded-full text-xs font-mono shadow-[0_0_15px_rgba(6,182,212,0.35)]">
             <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="font-bold tracking-wide">AI REAL-TIME WILDLIFE SCANNER</span>
+            <span className="font-bold tracking-wide">RAW DRONE CAMERA FEED</span>
           </div>
-        )}
+        ) : null}
 
         {!videoError ? (
           <video
@@ -478,7 +487,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
               setVideoError(true);
               setIsLoading(false);
             }}
-            className={`w-full h-full object-cover transition-filter duration-300 ${
+            className={`w-full h-full object-contain bg-black transition-filter duration-300 ${
               showThermal
                 ? 'filter invert contrast-200 hue-rotate-180 brightness-90 saturate-200'
                 : ''
@@ -489,7 +498,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
             ref={canvasRef}
             width={1280}
             height={720}
-            className={`w-full h-full object-cover ${
+            className={`w-full h-full object-contain bg-black ${
               showThermal ? 'filter invert contrast-150' : ''
             }`}
           />
@@ -498,7 +507,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
         {/* Tactical HUD Telemetry Layer */}
         <DroneHudOverlay
           telemetry={telemetry}
-          wildlifeDetections={currentStream.detectedWildlife}
+          wildlifeDetections={isDetectedVideo ? [] : currentStream.detectedWildlife}
           showAiVision={showAiVision}
           showThermal={showThermal}
           onSelectAnimal={onSelectAnimal}

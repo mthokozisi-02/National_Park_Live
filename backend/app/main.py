@@ -250,7 +250,7 @@ def detect_video(
     video_name: str,
     conf: float = Query(0.25, ge=0.05, le=0.95, description="Confidence threshold"),
     max_frames: Optional[int] = Query(None, description="Max frames to process, or None to scan the full video"),
-    frame_stride: int = Query(2, ge=1, le=30, description="Process every N-th frame for speed")
+    frame_stride: int = Query(1, ge=1, le=30, description="Process every N-th frame (1 = full framerate)")
 ):
     """
     Run YOLO wildlife detection on a safari video.

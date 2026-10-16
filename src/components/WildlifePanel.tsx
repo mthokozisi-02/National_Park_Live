@@ -107,12 +107,12 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
         conf: 0.25,
         // Full scan: omit maxFrames so backend processes all frames; Preview: cap at 100
         ...(scanMode === 'preview' ? { maxFrames: 100 } : {}),
-        frameStride: 2,
+        frameStride: 1, // Full native framerate (no frame skipping)
       });
       setInferenceResult(result);
       setActiveTab('model');
 
-      // Build the output video URL and immediately play it on the main display!
+      // Build the output video URL and immediately play the clean detected video!
       if (result.output_url) {
         const outputFilename = result.output_url.split('/').pop() || '';
         const outputUrl = wildlifeDetectionService.getOutputVideoUrl(outputFilename);
@@ -122,9 +122,9 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
         const updatedOutputs = await wildlifeDetectionService.listOutputVideos();
         setOutputVideos(updatedOutputs);
 
-        // Keep the original high-resolution video playing on the main screen with live frontend scanning!
+        // Play the clean, high-framerate YOLO detected video directly on the main screen!
         if (onPlayVideoOnMainScreen) {
-          onPlayVideoOnMainScreen(`/videos/${targetVideo}`, `${targetVideo} (Original 1080p Stream)`);
+          onPlayVideoOnMainScreen(outputUrl, `🌟 ${targetVideo} (YOLO Detected Stream)`);
         }
       }
 
@@ -211,47 +211,92 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
               onChange={(e) => {
                 const vid = e.target.value;
                 setSelectedVideo(vid);
-                handlePlayRawOnMainScreen(vid);
+                if (isDetectedAvailable(vid)) {
+                  handlePlayAnnotatedOnMainScreen(vid);
+                } else {
+                  handlePlayRawOnMainScreen(vid);
+                }
               }}
               disabled={isInferring}
               className="w-full bg-slate-950 border border-slate-700 hover:border-cyan-500 text-gray-200 px-2.5 py-1.5 rounded text-xs font-mono focus:outline-none cursor-pointer disabled:opacity-50"
             >
-              {availableVideos.map((v) => (
-                <option key={v} value={v}>
-                  {v === 'final.mp4' ? '🌟 final.mp4 (Full 3m 4s Safari Video)' : v}
-                </option>
-              ))}
+              {availableVideos.map((v) => {
+                const detected = isDetectedAvailable(v);
+                return (
+                  <option key={v} value={v}>
+                    {detected ? `🌟 ${v} (✓ Clean AI Detected Video Ready)` : v}
+                  </option>
+                );
+              })}
             </select>
           </div>
 
-          {/* Action Buttons: Play in Original Quality + Live YOLO Scanner */}
+          {/* Action Buttons: Clean Backend Video Playback */}
           <div className="flex flex-col gap-2">
-            <button
-              onClick={() => handlePlayRawOnMainScreen(selectedVideo)}
-              className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black py-2.5 px-3 rounded-lg text-xs transition-all shadow-lg hover:shadow-emerald-500/20 cursor-pointer"
-            >
-              <Play className="w-4 h-4 fill-current" />
-              <span>▶ PLAY ON MAIN DISPLAY (ORIGINAL 1080P + LIVE HUD)</span>
-            </button>
-
-            <button
-              onClick={() => handleRunInference()}
-              disabled={isInferring || !backendHealth}
-              className="w-full flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-amber-500/50 text-amber-300 font-bold py-1.5 px-3 rounded text-xs transition-all disabled:opacity-50 cursor-pointer"
-              title={backendHealth ? 'Run YOLO inference across all frames' : 'Backend required for batch report'}
-            >
-              {isInferring ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>ANALYZING ALL FRAMES IN BACKEND...</span>
-                </>
-              ) : (
-                <>
-                  <Cpu className="w-3.5 h-3.5 text-amber-400" />
-                  <span>⚡ BATCH SCAN FULL VIDEO (SPECIES REPORT)</span>
-                </>
-              )}
-            </button>
+            {isDetectedAvailable(selectedVideo) ? (
+              <div className="flex flex-col gap-1.5">
+                <button
+                  onClick={() => handlePlayAnnotatedOnMainScreen(selectedVideo)}
+                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-110 text-black font-black py-2.5 px-3 rounded-lg text-xs transition-all shadow-lg shadow-amber-500/25 cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4 fill-current text-black" />
+                  <span>▶ PLAY CLEAN AI DETECTED VIDEO ON MAIN SCREEN</span>
+                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => handlePlayRawOnMainScreen(selectedVideo)}
+                    className="flex-1 flex items-center justify-center gap-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-gray-300 font-semibold py-1.5 px-2 rounded text-[11px] transition-all cursor-pointer"
+                  >
+                    <Video className="w-3.5 h-3.5 text-gray-400" />
+                    <span>Play Raw Video</span>
+                  </button>
+                  <button
+                    onClick={() => handleRunInference()}
+                    disabled={isInferring || !backendHealth}
+                    className="flex-1 flex items-center justify-center gap-1 bg-slate-850 hover:bg-slate-800 border border-slate-700 hover:border-amber-500/50 text-amber-300 font-bold py-1.5 px-2 rounded text-[11px] transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    {isInferring ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>Re-Scanning...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Cpu className="w-3 h-3 text-amber-400" />
+                        <span>Re-Scan Full Video</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                <button
+                  onClick={() => handleRunInference()}
+                  disabled={isInferring || !backendHealth}
+                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:brightness-110 text-black font-black py-2.5 px-3 rounded-lg text-xs transition-all shadow-lg cursor-pointer"
+                >
+                  {isInferring ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-black" />
+                      <span>GENERATING FULL-FRAMERATE AI DETECTED VIDEO...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 fill-current text-black" />
+                      <span>⚡ SCAN & GENERATE CLEAN AI DETECTED VIDEO</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => handlePlayRawOnMainScreen(selectedVideo)}
+                  className="w-full flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-gray-300 font-semibold py-1.5 px-3 rounded text-[11px] transition-all cursor-pointer"
+                >
+                  <Video className="w-3.5 h-3.5 text-gray-400" />
+                  <span>Play Raw Video</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Inference Result Summary Banner */}
