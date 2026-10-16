@@ -43,6 +43,22 @@ export const wildlifeDetectionService = {
   },
 
   /**
+   * Fetch list of processed detected videos in backend/output
+   */
+  async listOutputVideos(): Promise<string[]> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/outputs`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      });
+      if (!res.ok) return [];
+      return await res.json();
+    } catch {
+      return [];
+    }
+  },
+
+  /**
    * Upload video to backend
    */
   async uploadVideo(file: File): Promise<{ message: string; filename: string; size_bytes: number }> {

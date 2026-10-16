@@ -1,14 +1,18 @@
 import os
 import uuid
+import subprocess
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import cv2
 from ultralytics import YOLO
 
+logger = logging.getLogger("safari.detector")
+
 
 # ============================================================
-# PATHS
+# PATHS & WEB H.264 CONVERTER
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -19,6 +23,38 @@ MODEL_DIR = BASE_DIR / "models"
 
 VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def convert_to_web_h264(video_path: Path) -> Path:
+    """
+    Ensure the detected video is encoded with H.264 (AVC) and yuv420p with faststart,
+    which is universally supported across all modern web browsers (Chrome, Edge, Safari, Firefox).
+    Uses imageio_ffmpeg bundled binary if available.
+    """
+    try:
+        import imageio_ffmpeg
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        temp_h264 = video_path.with_name(f"{video_path.stem}_web.mp4")
+        cmd = [
+            ffmpeg_exe, "-y",
+            "-i", str(video_path),
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            str(temp_h264)
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180)
+        if res.returncode == 0 and temp_h264.is_file() and temp_h264.stat().st_size > 0:
+            video_path.unlink()
+            temp_h264.rename(video_path)
+            logger.info(f"Successfully converted {video_path.name} to web-compatible H.264")
+        else:
+            if temp_h264.is_file():
+                temp_h264.unlink()
+            logger.warning(f"FFmpeg conversion warning: {res.stderr[:200]}")
+    except Exception as exc:
+        logger.warning(f"Could not convert video to H.264: {exc}")
+    return video_path
 
 # Use the trained model by default.
 # YOLO_MODEL_PATH can override this path when required.
@@ -334,6 +370,9 @@ def detect_animals(
     finally:
         capture.release()
         writer.release()
+
+    # Ensure output video is universally playable in all web browsers (H.264)
+    output_path = convert_to_web_h264(output_path)
 
     # --------------------------------------------------------
     # API response

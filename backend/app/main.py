@@ -84,6 +84,16 @@ def list_videos():
     return sorted(videos)
 
 
+@app.get("/api/outputs", response_model=List[str])
+def list_output_videos():
+    """List processed detected videos available in the backend/output directory."""
+    videos = [
+        f.name for f in OUTPUT_DIR.iterdir()
+        if f.is_file() and f.suffix.lower() in ALLOWED_EXTENSIONS
+    ]
+    return sorted(videos)
+
+
 @app.get("/api/videos/{filename}")
 def get_raw_video(filename: str):
     """Retrieve raw safari video file from backend/videos for player streaming."""

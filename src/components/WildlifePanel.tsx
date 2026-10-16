@@ -51,19 +51,24 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
   const [inferenceResult, setInferenceResult] = useState<ModelDetectionResponse | null>(null);
   const [inferenceError, setInferenceError] = useState<string | null>(null);
   const [availableVideos, setAvailableVideos] = useState<string[]>(DEFAULT_VIDEOS);
+  const [outputVideos, setOutputVideos] = useState<string[]>([]);
   const [selectedVideo, setSelectedVideo] = useState<string>('final.mp4');
   const [scanMode, setScanMode] = useState<'full' | 'preview'>('full');
   const [lastOutputVideoUrl, setLastOutputVideoUrl] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'catalog' | 'model'>('catalog');
 
-  // Check FastAPI backend status
+  // Check FastAPI backend status and fetch available input & detected output videos
   const checkBackendStatus = async () => {
     setIsCheckingBackend(true);
     const health = await wildlifeDetectionService.checkHealth();
     const videos = await wildlifeDetectionService.listVideos();
+    const outputs = await wildlifeDetectionService.listOutputVideos();
     setBackendHealth(health);
     if (videos && videos.length > 0) {
       setAvailableVideos(Array.from(new Set([...DEFAULT_VIDEOS, ...videos])));
+    }
+    if (outputs && outputs.length > 0) {
+      setOutputVideos(outputs);
     }
     setIsCheckingBackend(false);
   };
@@ -72,9 +77,21 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
     checkBackendStatus();
   }, []);
 
-  const handlePlayOnMainScreen = (videoName: string) => {
+  const getStem = (name: string) => name.replace(/\.[^/.]+$/, '');
+  const getDetectedFilename = (videoName: string) => `${getStem(videoName)}_detected.mp4`;
+  const isDetectedAvailable = (videoName: string) => outputVideos.includes(getDetectedFilename(videoName));
+
+  const handlePlayAnnotatedOnMainScreen = (videoName: string) => {
+    const filename = getDetectedFilename(videoName);
+    const outputUrl = wildlifeDetectionService.getOutputVideoUrl(filename);
     if (onPlayVideoOnMainScreen) {
-      onPlayVideoOnMainScreen(`/videos/${videoName}`, `${videoName} (Live Safari Feed)`);
+      onPlayVideoOnMainScreen(outputUrl, `🌟 ${videoName} (YOLO Detected Stream)`);
+    }
+  };
+
+  const handlePlayRawOnMainScreen = (videoName: string) => {
+    if (onPlayVideoOnMainScreen) {
+      onPlayVideoOnMainScreen(`/videos/${videoName}`, `${videoName} (Raw Drone Feed)`);
     }
   };
 
@@ -95,11 +112,20 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
       setInferenceResult(result);
       setActiveTab('model');
 
-      // Build the output video URL from the backend response
+      // Build the output video URL and immediately play it on the main display!
       if (result.output_url) {
         const outputFilename = result.output_url.split('/').pop() || '';
         const outputUrl = wildlifeDetectionService.getOutputVideoUrl(outputFilename);
         setLastOutputVideoUrl(outputUrl);
+
+        // Refresh output videos list
+        const updatedOutputs = await wildlifeDetectionService.listOutputVideos();
+        setOutputVideos(updatedOutputs);
+
+        // Automatically switch the main screen to the detected video from backend!
+        if (onPlayVideoOnMainScreen) {
+          onPlayVideoOnMainScreen(outputUrl, `🌟 ${targetVideo} (YOLO Detected Stream)`);
+        }
       }
 
       // Convert sample detections to WildlifeDetection objects for the HUD & catalog
@@ -183,52 +209,99 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
             <select
               value={selectedVideo}
               onChange={(e) => {
-                setSelectedVideo(e.target.value);
-                handlePlayOnMainScreen(e.target.value);
+                const vid = e.target.value;
+                setSelectedVideo(vid);
+                if (isDetectedAvailable(vid)) {
+                  handlePlayAnnotatedOnMainScreen(vid);
+                } else {
+                  handlePlayRawOnMainScreen(vid);
+                }
               }}
               disabled={isInferring}
               className="w-full bg-slate-950 border border-slate-700 hover:border-cyan-500 text-gray-200 px-2.5 py-1.5 rounded text-xs font-mono focus:outline-none cursor-pointer disabled:opacity-50"
             >
-              {availableVideos.map((v) => (
-                <option key={v} value={v}>
-                  {v === 'final.mp4' ? '🌟 final.mp4 (Full 3m 4s Safari Video)' : v}
-                </option>
-              ))}
+              {availableVideos.map((v) => {
+                const detected = isDetectedAvailable(v);
+                return (
+                  <option key={v} value={v}>
+                    {detected ? `🌟 ${v} (✓ AI Detected Available)` : v}
+                  </option>
+                );
+              })}
             </select>
           </div>
 
-          {/* Action Buttons: Real-Time Play/Scan vs Full Batch Scan */}
+          {/* Action Buttons: Play Detected vs Play Raw vs Full Batch Scan */}
           <div className="flex flex-col gap-2">
-            {/* Real-time Play on Main Screen Button */}
-            <button
-              onClick={() => handlePlayOnMainScreen(selectedVideo)}
-              className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black py-2 px-3 rounded-lg text-xs transition-all shadow-lg hover:shadow-emerald-500/20 cursor-pointer"
-            >
-              <Play className="w-4 h-4 fill-current" />
-              <span>▶ PLAY & SCAN ON MAIN DISPLAY (REAL TIME)</span>
-            </button>
+            {isDetectedAvailable(selectedVideo) ? (
+              <div className="flex flex-col gap-1.5">
+                {/* Play AI Detected Video with Burnt-in Boxes */}
+                <button
+                  onClick={() => handlePlayAnnotatedOnMainScreen(selectedVideo)}
+                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-110 text-black font-black py-2.5 px-3 rounded-lg text-xs transition-all shadow-lg shadow-amber-500/25 cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4 fill-current text-black" />
+                  <span>▶ PLAY AI DETECTED VIDEO ON MAIN DISPLAY</span>
+                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => handlePlayRawOnMainScreen(selectedVideo)}
+                    className="flex-1 flex items-center justify-center gap-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-gray-300 font-semibold py-1.5 px-2 rounded text-[11px] transition-all cursor-pointer"
+                  >
+                    <Video className="w-3.5 h-3.5 text-gray-400" />
+                    <span>Play Raw Video</span>
+                  </button>
+                  <button
+                    onClick={() => handleRunInference()}
+                    disabled={isInferring || !backendHealth}
+                    className="flex-1 flex items-center justify-center gap-1 bg-slate-850 hover:bg-slate-800 border border-slate-700 hover:border-amber-500/50 text-amber-300 font-bold py-1.5 px-2 rounded text-[11px] transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    {isInferring ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>RE-SCANNING...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Cpu className="w-3 h-3 text-amber-400" />
+                        <span>Re-Scan Video</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {/* Real-time Play on Main Screen Button */}
+                <button
+                  onClick={() => handlePlayRawOnMainScreen(selectedVideo)}
+                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black py-2 px-3 rounded-lg text-xs transition-all shadow-lg hover:shadow-emerald-500/20 cursor-pointer"
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>▶ PLAY & SCAN ON MAIN DISPLAY</span>
+                </button>
 
-            {/* Batch YOLO Scan Button */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleRunInference()}
-                disabled={isInferring || !backendHealth}
-                className="flex-1 flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-amber-500/50 text-amber-300 font-bold py-1.5 px-3 rounded text-xs transition-all disabled:opacity-50 cursor-pointer"
-                title={backendHealth ? 'Run YOLO inference across all frames' : 'Backend required for batch export'}
-              >
-                {isInferring ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>SCANNING ALL FRAMES...</span>
-                  </>
-                ) : (
-                  <>
-                    <Cpu className="w-3.5 h-3.5 text-amber-400" />
-                    <span>⚡ BATCH SCAN (ALL FRAMES)</span>
-                  </>
-                )}
-              </button>
-            </div>
+                {/* Batch YOLO Scan Button */}
+                <button
+                  onClick={() => handleRunInference()}
+                  disabled={isInferring || !backendHealth}
+                  className="w-full flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-amber-500/50 text-amber-300 font-bold py-1.5 px-3 rounded text-xs transition-all disabled:opacity-50 cursor-pointer"
+                  title={backendHealth ? 'Run YOLO inference across all frames' : 'Backend required for batch export'}
+                >
+                  {isInferring ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>SCANNING ALL FRAMES & GENERATING ANNOTATED VIDEO...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Cpu className="w-3.5 h-3.5 text-amber-400" />
+                      <span>⚡ BATCH SCAN & GENERATE ANNOTATED VIDEO</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Inference Result Summary Banner */}

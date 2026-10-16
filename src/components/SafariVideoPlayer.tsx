@@ -85,9 +85,13 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
 
   // Real-time Video Frame Scanner using YOLOv8
   const scanCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isAnnotatedStream =
+    currentStream.videoUrl.includes('/api/output/') ||
+    currentStream.videoUrl.includes('_detected');
 
   useEffect(() => {
-    if (!showAiVision) return;
+    // If AI vision is off or video is already the backend-annotated video with burned-in boxes, skip snapshotting
+    if (!showAiVision || isAnnotatedStream) return;
 
     let isScanningFrame = false;
 
@@ -129,7 +133,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
     }, 1200); // Process frame every 1.2s to maintain fluid 60fps playback without lag
 
     return () => clearInterval(scanInterval);
-  }, [showAiVision, onLiveDetectionsFound]);
+  }, [showAiVision, onLiveDetectionsFound, isAnnotatedStream]);
 
   // Synchronize fullscreen state with document changes (e.g. user presses Esc)
   useEffect(() => {
@@ -421,9 +425,18 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
           </div>
         )}
 
+        {/* Real-time Badge for AI-Annotated Stream from FastAPI */}
+        {isAnnotatedStream && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-black/85 backdrop-blur-md border border-amber-500/60 text-amber-300 px-3.5 py-1 rounded-full text-xs font-mono shadow-[0_0_15px_rgba(245,158,11,0.35)]">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <span className="font-bold tracking-wide">YOLO MODEL ANNOTATED FEED</span>
+          </div>
+        )}
+
         {!videoError ? (
           <video
             ref={videoRef}
+            key={currentStream.videoUrl}
             src={currentStream.videoUrl}
             poster={currentStream.posterUrl}
             autoPlay
