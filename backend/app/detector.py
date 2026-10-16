@@ -342,8 +342,8 @@ def detect_animals(
                 box_width = min(box_width, 1.0 - x)
                 box_height = min(box_height, 1.0 - y)
 
-                # Limit response size while still counting all detections.
-                if len(sample_detections) < 50:
+                # Retain detections across frames for complete timeline tracking
+                if len(sample_detections) < 1000:
                     sample_detections.append({
                         "id": str(uuid.uuid4())[:8],
                         "frame": current_frame,

@@ -144,7 +144,7 @@ export const CAMERA_STREAMS: SafariCameraStream[] = [
     quality: '4K Ultra HD',
     bitrateMbps: 16.2,
     streamStatus: 'demo',
-    detectedWildlife: [MOCK_WILDLIFE_CATALOG[0], MOCK_WILDLIFE_CATALOG[1]]
+    detectedWildlife: []
   },
   {
     id: 'stream-bravo',
@@ -157,7 +157,7 @@ export const CAMERA_STREAMS: SafariCameraStream[] = [
     quality: '4K Ultra HD',
     bitrateMbps: 14.8,
     streamStatus: 'demo',
-    detectedWildlife: [MOCK_WILDLIFE_CATALOG[2], MOCK_WILDLIFE_CATALOG[3]]
+    detectedWildlife: []
   },
   {
     id: 'stream-charlie',
@@ -170,7 +170,7 @@ export const CAMERA_STREAMS: SafariCameraStream[] = [
     quality: '1080p 60fps',
     bitrateMbps: 9.6,
     streamStatus: 'demo',
-    detectedWildlife: [MOCK_WILDLIFE_CATALOG[0], MOCK_WILDLIFE_CATALOG[3]]
+    detectedWildlife: []
   }
 ];
 

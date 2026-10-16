@@ -45,8 +45,8 @@ export default function SafariVisionApp() {
   };
 
   const handlePlayVideoOnMainScreen = (videoUrl: string, title: string) => {
-    const annotatedStream: SafariCameraStream = {
-      id: `annotated-${Date.now()}`,
+    const cleanStream: SafariCameraStream = {
+      id: `stream-${Date.now()}`,
       name: title,
       locationName: 'AI Safari Feed',
       description: `Active Video: ${title}`,
@@ -54,25 +54,28 @@ export default function SafariVisionApp() {
       videoUrl,
       posterUrl: '',
       quality: '1080p 60fps',
-      bitrateMbps: 8,
+      bitrateMbps: 16,
       streamStatus: 'demo',
-      detectedWildlife: wildlifeDetections,
+      detectedWildlife: [], // Start completely clean without stale/mock overlays
     };
-    setCurrentStream(annotatedStream);
+    setCurrentStream(cleanStream);
   };
 
   const handleLiveDetectionsFound = (liveDetections: WildlifeDetection[]) => {
-    setWildlifeDetections((prev) => {
-      const speciesMap = new Map<string, WildlifeDetection>();
-      liveDetections.forEach((d) => speciesMap.set(d.commonName, d));
-      prev.forEach((d) => {
-        if (!speciesMap.has(d.commonName)) {
-          speciesMap.set(d.commonName, d);
-        }
+    if (liveDetections.length > 0) {
+      setWildlifeDetections((prev) => {
+        const speciesMap = new Map<string, WildlifeDetection>();
+        liveDetections.forEach((d) => speciesMap.set(d.commonName, d));
+        prev.forEach((d) => {
+          if (!speciesMap.has(d.commonName)) {
+            speciesMap.set(d.commonName, d);
+          }
+        });
+        return Array.from(speciesMap.values());
       });
-      return Array.from(speciesMap.values());
-    });
+    }
 
+    // Reflect the EXACT current frame detections on the active HUD
     setCurrentStream((prev) => ({
       ...prev,
       detectedWildlife: liveDetections,

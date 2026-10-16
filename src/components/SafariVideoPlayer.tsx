@@ -85,33 +85,46 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
 
   // Real-time Video Frame Scanner using YOLOv8
   const scanCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const isAnnotatedStream =
-    currentStream.videoUrl.includes('/api/output/') ||
-    currentStream.videoUrl.includes('_detected');
 
   useEffect(() => {
-    // If AI vision is off or video is already the backend-annotated video with burned-in boxes, skip snapshotting
-    if (!showAiVision || isAnnotatedStream) return;
+    if (!showAiVision) {
+      if (onLiveDetectionsFound) onLiveDetectionsFound([]);
+      return;
+    }
 
-    let isScanningFrame = false;
+    let isScanning = false;
+    let timerId: NodeJS.Timeout;
 
-    const scanInterval = setInterval(async () => {
+    const runFrameScan = async () => {
       const video = videoRef.current;
-      if (!video || video.paused || video.ended || video.readyState < 2 || isScanningFrame) return;
+      if (!video || video.paused || video.ended || video.readyState < 2) {
+        timerId = setTimeout(runFrameScan, 250);
+        return;
+      }
+
+      if (isScanning) {
+        timerId = setTimeout(runFrameScan, 100);
+        return;
+      }
 
       try {
-        isScanningFrame = true;
+        isScanning = true;
         if (!scanCanvasRef.current) {
           scanCanvasRef.current = document.createElement('canvas');
-          scanCanvasRef.current.width = 640;
-          scanCanvasRef.current.height = 360;
         }
         const canvas = scanCanvasRef.current;
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          isScanningFrame = false;
+          isScanning = false;
+          timerId = setTimeout(runFrameScan, 250);
           return;
         }
+
+        const vw = video.videoWidth || 640;
+        const vh = video.videoHeight || 360;
+        const scale = Math.min(640 / vw, 640 / vh, 1.0);
+        canvas.width = Math.round(vw * scale);
+        canvas.height = Math.round(vh * scale);
 
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
@@ -119,21 +132,32 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
           try {
             if (blob) {
               const liveDetections = await wildlifeDetectionService.detectFrame(blob, 0.25);
-              if (liveDetections && liveDetections.length > 0 && onLiveDetectionsFound) {
-                onLiveDetectionsFound(liveDetections);
+              if (onLiveDetectionsFound) {
+                // Always report detections to HUD: if animals are detected, show them;
+                // if none are detected in this frame, CLEAR the overlay immediately!
+                onLiveDetectionsFound(liveDetections || []);
               }
             }
+          } catch {
+            // Keep going on network hiccup
           } finally {
-            isScanningFrame = false;
+            isScanning = false;
+            // Schedule next scan in 250ms for smooth real-time tracking
+            timerId = setTimeout(runFrameScan, 250);
           }
-        }, 'image/jpeg', 0.65);
+        }, 'image/jpeg', 0.80);
       } catch {
-        isScanningFrame = false;
+        isScanning = false;
+        timerId = setTimeout(runFrameScan, 250);
       }
-    }, 1200); // Process frame every 1.2s to maintain fluid 60fps playback without lag
+    };
 
-    return () => clearInterval(scanInterval);
-  }, [showAiVision, onLiveDetectionsFound, isAnnotatedStream]);
+    timerId = setTimeout(runFrameScan, 200);
+
+    return () => {
+      clearTimeout(timerId);
+    };
+  }, [showAiVision, onLiveDetectionsFound]);
 
   // Synchronize fullscreen state with document changes (e.g. user presses Esc)
   useEffect(() => {
@@ -425,11 +449,11 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
           </div>
         )}
 
-        {/* Real-time Badge for AI-Annotated Stream from FastAPI */}
-        {isAnnotatedStream && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-black/85 backdrop-blur-md border border-amber-500/60 text-amber-300 px-3.5 py-1 rounded-full text-xs font-mono shadow-[0_0_15px_rgba(245,158,11,0.35)]">
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-            <span className="font-bold tracking-wide">YOLO MODEL ANNOTATED FEED</span>
+        {/* Real-time Live YOLO Vision Active Badge */}
+        {showAiVision && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-black/85 backdrop-blur-md border border-cyan-500/60 text-cyan-300 px-3.5 py-1 rounded-full text-xs font-mono shadow-[0_0_15px_rgba(6,182,212,0.35)]">
+            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+            <span className="font-bold tracking-wide">AI REAL-TIME WILDLIFE SCANNER</span>
           </div>
         )}
 
