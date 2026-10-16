@@ -53,6 +53,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
@@ -62,6 +63,68 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
   const [videoError, setVideoError] = useState<boolean>(false);
   const [snapshotStatus, setSnapshotStatus] = useState<{ message: string; isError?: boolean } | null>(null);
   const [simulatedPing, setSimulatedPing] = useState<number>(118);
+
+  // Exact visible video rectangle within object-contain viewport
+  const [videoBounds, setVideoBounds] = useState<{
+    leftPercent: number;
+    topPercent: number;
+    widthPercent: number;
+    heightPercent: number;
+  }>({ leftPercent: 0, topPercent: 0, widthPercent: 100, heightPercent: 100 });
+
+  const updateVideoBounds = useCallback(() => {
+    const video = videoRef.current;
+    const container = videoContainerRef.current;
+    if (!video || !container) return;
+
+    const containerW = container.clientWidth;
+    const containerH = container.clientHeight;
+    if (containerW <= 0 || containerH <= 0) return;
+
+    const videoW = video.videoWidth || 16;
+    const videoH = video.videoHeight || 9;
+
+    const containerAspect = containerW / containerH;
+    const videoAspect = videoW / videoH;
+
+    let rW = containerW;
+    let rH = containerH;
+
+    if (containerAspect > videoAspect) {
+      // Container is wider than video -> pillarboxing (bars on left and right)
+      rH = containerH;
+      rW = containerH * videoAspect;
+    } else {
+      // Container is taller than video -> letterboxing (bars on top and bottom)
+      rW = containerW;
+      rH = containerW / videoAspect;
+    }
+
+    const left = (containerW - rW) / 2;
+    const top = (containerH - rH) / 2;
+
+    setVideoBounds({
+      leftPercent: (left / containerW) * 100,
+      topPercent: (top / containerH) * 100,
+      widthPercent: (rW / containerW) * 100,
+      heightPercent: (rH / containerH) * 100,
+    });
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('resize', updateVideoBounds);
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && videoContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        updateVideoBounds();
+      });
+      resizeObserver.observe(videoContainerRef.current);
+    }
+    return () => {
+      window.removeEventListener('resize', updateVideoBounds);
+      resizeObserver?.disconnect();
+    };
+  }, [updateVideoBounds]);
 
   // Reset video error and show loading state when switching streams or videos
   useEffect(() => {
@@ -504,7 +567,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
       }`}
     >
       {/* Video Stream or Fallback Engine */}
-      <div className="relative w-full h-full flex-1 overflow-hidden rounded-xl bg-slate-900">
+      <div ref={videoContainerRef} className="relative w-full h-full flex-1 overflow-hidden rounded-xl bg-slate-900">
         {isLoading && !videoError && (
           <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80 backdrop-blur-xs">
             <div className="flex flex-col items-center gap-2 font-mono text-xs text-slate-800">
@@ -538,10 +601,15 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
             muted
             playsInline
             onLoadStart={() => setIsLoading(true)}
-            onCanPlay={() => setIsLoading(false)}
+            onLoadedMetadata={updateVideoBounds}
+            onCanPlay={() => {
+              setIsLoading(false);
+              updateVideoBounds();
+            }}
             onPlaying={() => {
               setIsPlaying(true);
               setIsLoading(false);
+              updateVideoBounds();
             }}
             onPause={() => setIsPlaying(false)}
             onError={() => {
@@ -572,6 +640,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
           showAiVision={showAiVision}
           showThermal={showThermal}
           onSelectAnimal={onSelectAnimal}
+          videoBounds={videoBounds}
         />
 
         {/* Snapshot Notification Banner */}

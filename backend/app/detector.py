@@ -72,18 +72,28 @@ if not MODEL_PATH.is_absolute():
 # MODEL LOADING
 # ============================================================
 
+model: Optional[YOLO] = None
+MODEL_NAME: str = MODEL_PATH.name if MODEL_PATH else "none"
+MODEL_LOAD_ERROR: Optional[str] = None
+MODEL_CLASS_NAMES: Dict[int, str] = {}
+
 if not MODEL_PATH.is_file():
-    raise FileNotFoundError(
-        f"Trained wildlife model checkpoint not found at: '{MODEL_PATH}'.\n"
-        "Deployment Note: Large model weights (*.pt, *.pth, *.onnx) are excluded from git by default.\n"
-        "To run the detection service, ensure 'best_finetuned.pt' is present inside 'backend/models/'\n"
-        "or set the MODEL_PATH environment variable to the absolute path of the model checkpoint:\n"
-        "  export MODEL_PATH=/path/to/best_finetuned.pt"
+    MODEL_LOAD_ERROR = (
+        f"Trained wildlife model checkpoint not found at: '{MODEL_PATH}'. "
+        "Large model weights (*.pt) are excluded from git. "
+        "Ensure 'best_finetuned.pt' is present inside 'backend/models/' "
+        "or set MODEL_PATH environment variable."
     )
-
-model = YOLO(str(MODEL_PATH))
-
-MODEL_NAME = MODEL_PATH.name
+    logger.warning(MODEL_LOAD_ERROR)
+else:
+    try:
+        model = YOLO(str(MODEL_PATH))
+        MODEL_NAME = MODEL_PATH.name
+        logger.info(f"Loaded YOLO wildlife detection model from: {MODEL_PATH}")
+    except Exception as exc:
+        model = None
+        MODEL_LOAD_ERROR = f"Failed to initialize YOLO model: {exc}"
+        logger.error(MODEL_LOAD_ERROR)
 
 
 # ============================================================
@@ -135,21 +145,24 @@ WILDLIFE_MAPPINGS: Dict[str, Dict[str, str]] = {
 
 # Read the actual names stored in the trained model.
 # This prevents accidental assumptions about class IDs.
-MODEL_CLASS_NAMES = {
-    int(class_id): str(class_name).lower().strip()
-    for class_id, class_name in model.names.items()
-}
-
 EXPECTED_CLASSES = set(WILDLIFE_MAPPINGS.keys())
 
-missing_classes = EXPECTED_CLASSES - set(MODEL_CLASS_NAMES.values())
-
-if missing_classes:
-    raise ValueError(
-        "The trained model is missing expected wildlife classes: "
-        f"{sorted(missing_classes)}. "
-        f"Model classes: {MODEL_CLASS_NAMES}"
-    )
+if model is not None and hasattr(model, "names") and model.names:
+    MODEL_CLASS_NAMES = {
+        int(class_id): str(class_name).lower().strip()
+        for class_id, class_name in model.names.items()
+    }
+    missing_classes = EXPECTED_CLASSES - set(MODEL_CLASS_NAMES.values())
+    if missing_classes:
+        logger.warning(
+            "The trained model is missing expected wildlife classes: "
+            f"{sorted(missing_classes)}. "
+            f"Model classes: {MODEL_CLASS_NAMES}"
+        )
+else:
+    MODEL_CLASS_NAMES = {
+        idx: name for idx, name in enumerate(WILDLIFE_MAPPINGS.keys())
+    }
 
 
 # ============================================================
@@ -173,9 +186,10 @@ def detect_animals(
       5. Returns detection statistics and normalized bounding boxes.
     """
 
-    # --------------------------------------------------------
-    # Validate input
-    # --------------------------------------------------------
+    if model is None:
+        raise RuntimeError(
+            f"Wildlife detection model unavailable: {MODEL_LOAD_ERROR or 'Model not loaded'}"
+        )
 
     if Path(video_name).name != video_name:
         raise ValueError("Invalid video filename.")
@@ -423,6 +437,10 @@ def detect_animals(
         k: len(v) for k, v in species_unique_ids.items()
     }
 
+    tracking_active = bool(unique_track_ids)
+    tracked_count = len(unique_track_ids) if tracking_active else 0
+    species_tracked = species_unique_counts if tracking_active else {k: 0 for k in species_counts}
+
     return {
         "video": video_name,
         "frames_processed": frames_processed,
@@ -430,10 +448,13 @@ def detect_animals(
         "duration_seconds": round(duration_sec, 2),
         "total_frame_detections": total_detections,
         "detections": total_detections,
-        "unique_individuals": len(unique_track_ids) if unique_track_ids else total_detections,
+        "tracked_individuals": tracked_count,
+        "unique_individuals": tracked_count,
+        "tracking_active": tracking_active,
         "species_frame_counts": species_counts,
         "species_counts": species_counts,
-        "species_unique_counts": species_unique_counts if species_unique_counts else species_counts,
+        "species_tracked_counts": species_tracked,
+        "species_unique_counts": species_tracked,
         "inference_speed_ms": round(avg_inference_ms, 1),
         "output_video": str(output_path),
         "output_url": f"/api/output/{output_filename}",

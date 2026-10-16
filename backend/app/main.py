@@ -12,12 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+import app.detector as detector
 from app.detector import (
     detect_animals,
     VIDEO_DIR,
     OUTPUT_DIR,
-    MODEL_NAME,
-    model,
     WILDLIFE_MAPPINGS,
 )
 from app.sightings import (
@@ -80,20 +79,23 @@ ALLOWED_EXTENSIONS = {".mp4", ".webm", ".mov"}
 
 @app.get("/api/health", response_model=HealthResponse)
 def health():
-    device = getattr(model, "device", "cpu")
+    current_model = detector.model
+    device = getattr(current_model, "device", "cpu") if current_model is not None else None
     supported = []
-    if model is not None and hasattr(model, "names") and model.names:
-        supported = list(model.names.values())
+    if current_model is not None and hasattr(current_model, "names") and current_model.names:
+        supported = list(current_model.names.values())
     else:
-        supported = list(WILDLIFE_MAPPINGS.values())
+        supported = [m["common_name"] for m in WILDLIFE_MAPPINGS.values()]
 
+    is_loaded = current_model is not None
     return {
-        "status": "ok",
+        "status": "ok" if is_loaded else "degraded",
         "service": "wildlife-detection",
-        "model": MODEL_NAME,
-        "device": str(device),
-        "model_loaded": model is not None,
+        "model": detector.MODEL_NAME,
+        "device": str(device) if device is not None else None,
+        "model_loaded": is_loaded,
         "supported_classes": supported,
+        "error": detector.MODEL_LOAD_ERROR if not is_loaded else None,
     }
 
 
@@ -218,10 +220,10 @@ async def detect_frame(
     Real-time single frame wildlife detection.
     Receives an image frame from the video player and returns detected bounding boxes instantly.
     """
-    if model is None:
+    if detector.model is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Wildlife detection model unavailable",
+            detail=f"Wildlife detection model unavailable: {detector.MODEL_LOAD_ERROR or 'Not loaded'}",
         )
 
     contents = await file.read()
@@ -231,9 +233,9 @@ async def detect_frame(
     if frame is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid image frame data")
 
-    results = model.predict(source=frame, conf=conf, imgsz=640, verbose=False)[0]
+    results = detector.model.predict(source=frame, conf=conf, imgsz=640, verbose=False)[0]
     detections = []
-    names = getattr(model, "names", {})
+    names = getattr(detector.model, "names", {})
 
     if results.boxes is not None and len(results.boxes) > 0:
         for box in results.boxes:
@@ -286,10 +288,10 @@ def detect_video(
             detail="Invalid video filename. Path traversal not permitted.",
         )
 
-    if model is None:
+    if detector.model is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Wildlife detection model unavailable: Not loaded",
+            detail=f"Wildlife detection model unavailable: {detector.MODEL_LOAD_ERROR or 'Not loaded'}",
         )
 
     try:
@@ -315,7 +317,7 @@ def detect_video(
             for sample in results.get("sample_detections", []):
                 track_id = sample.get("track_id")
                 c_name = sample.get("common_name")
-                key = f"{c_name}_{track_id}" if track_id else f"{c_name}_{sample.get('id')}"
+                key = f"{video_name}_{c_name}_{track_id}" if track_id else f"{video_name}_{c_name}_{sample.get('id')}"
                 if key in recorded_tracks:
                     continue
                 recorded_tracks.add(key)

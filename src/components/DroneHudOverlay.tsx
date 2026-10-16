@@ -13,12 +13,20 @@ import {
   faTowerBroadcast,
 } from '@fortawesome/free-solid-svg-icons';
 
+export interface VideoBounds {
+  leftPercent: number;
+  topPercent: number;
+  widthPercent: number;
+  heightPercent: number;
+}
+
 interface DroneHudOverlayProps {
   telemetry: DroneTelemetry;
   wildlifeDetections: WildlifeDetection[];
   showAiVision: boolean;
   showThermal: boolean;
   onSelectAnimal: (animal: WildlifeDetection) => void;
+  videoBounds?: VideoBounds;
 }
 
 export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
@@ -27,6 +35,7 @@ export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
   showAiVision,
   showThermal,
   onSelectAnimal,
+  videoBounds,
 }) => {
   // Compass heading tape ticks
   const compassTicks = [-40, -30, -20, -10, 0, 10, 20, 30, 40];
@@ -184,55 +193,67 @@ export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
         </div>
       </div>
 
-      {/* Wildlife Vision Overlays (Bounding Boxes) */}
-      {showAiVision &&
-        wildlifeDetections.map((detection) => {
-          const rawLeft = detection.box.x <= 1 ? detection.box.x * 100 : detection.box.x;
-          const rawTop = detection.box.y <= 1 ? detection.box.y * 100 : detection.box.y;
-          const rawWidth = detection.box.width <= 1 ? detection.box.width * 100 : detection.box.width;
-          const rawHeight = detection.box.height <= 1 ? detection.box.height * 100 : detection.box.height;
+      {/* Wildlife Vision Overlays (Bounding Boxes) aligned to actual video area */}
+      {showAiVision && (
+        <div
+          style={{
+            position: 'absolute',
+            left: `${videoBounds?.leftPercent ?? 0}%`,
+            top: `${videoBounds?.topPercent ?? 0}%`,
+            width: `${videoBounds?.widthPercent ?? 100}%`,
+            height: `${videoBounds?.heightPercent ?? 100}%`,
+            pointerEvents: 'none',
+          }}
+        >
+          {wildlifeDetections.map((detection) => {
+            const rawLeft = detection.box.x <= 1 ? detection.box.x * 100 : detection.box.x;
+            const rawTop = detection.box.y <= 1 ? detection.box.y * 100 : detection.box.y;
+            const rawWidth = detection.box.width <= 1 ? detection.box.width * 100 : detection.box.width;
+            const rawHeight = detection.box.height <= 1 ? detection.box.height * 100 : detection.box.height;
 
-          const leftPct = Math.min(100, Math.max(0, rawLeft));
-          const topPct = Math.min(100, Math.max(0, rawTop));
-          const widthPct = Math.min(100 - leftPct, Math.max(0, rawWidth));
-          const heightPct = Math.min(100 - topPct, Math.max(0, rawHeight));
+            const leftPct = Math.min(100, Math.max(0, rawLeft));
+            const topPct = Math.min(100, Math.max(0, rawTop));
+            const widthPct = Math.min(100 - leftPct, Math.max(0, rawWidth));
+            const heightPct = Math.min(100 - topPct, Math.max(0, rawHeight));
 
-          return (
-            <div
-              key={detection.id}
-              style={{
-                left: `${leftPct}%`,
-                top: `${topPct}%`,
-                width: `${widthPct}%`,
-                height: `${heightPct}%`,
-              }}
-              className="absolute border-2 border-emerald-500 bg-emerald-500/10 rounded-lg transition-all duration-300 pointer-events-auto cursor-pointer group hover:border-emerald-600 hover:bg-emerald-500/20 shadow-md"
-              onClick={() => onSelectAnimal(detection)}
-            >
-              {/* Corner Brackets */}
-              <div className="absolute -top-1 -left-1 w-2.5 h-2.5 border-t-2 border-l-2 border-emerald-600" />
-              <div className="absolute -top-1 -right-1 w-2.5 h-2.5 border-t-2 border-r-2 border-emerald-600" />
-              <div className="absolute -bottom-1 -left-1 w-2.5 h-2.5 border-b-2 border-l-2 border-emerald-600" />
-              <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 border-b-2 border-r-2 border-emerald-600" />
+            return (
+              <div
+                key={detection.id}
+                style={{
+                  left: `${leftPct}%`,
+                  top: `${topPct}%`,
+                  width: `${widthPct}%`,
+                  height: `${heightPct}%`,
+                }}
+                className="absolute border-2 border-emerald-500 bg-emerald-500/10 rounded-lg transition-all duration-300 pointer-events-auto cursor-pointer group hover:border-emerald-600 hover:bg-emerald-500/20 shadow-md"
+                onClick={() => onSelectAnimal(detection)}
+              >
+                {/* Corner Brackets */}
+                <div className="absolute -top-1 -left-1 w-2.5 h-2.5 border-t-2 border-l-2 border-emerald-600" />
+                <div className="absolute -top-1 -right-1 w-2.5 h-2.5 border-t-2 border-r-2 border-emerald-600" />
+                <div className="absolute -bottom-1 -left-1 w-2.5 h-2.5 border-b-2 border-l-2 border-emerald-600" />
+                <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 border-b-2 border-r-2 border-emerald-600" />
 
-              {/* Floating Detection Tag */}
-              <div className="absolute -top-8 left-0 flex items-center gap-1.5 bg-white/95 backdrop-blur-md px-2.5 py-1 rounded-md border border-slate-300 text-xs font-mono whitespace-nowrap text-slate-900 group-hover:border-emerald-600 transition-colors shadow-lg">
-                <FontAwesomeIcon icon={faPaw} className="w-3 h-3 text-emerald-600" />
-                <span className="font-black tracking-wide">{detection.commonName.toUpperCase()}</span>
-                <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1 py-0.5 rounded font-bold">
-                  {(detection.confidence * 100).toFixed(0)}%
-                </span>
-                <span className="text-slate-500 text-[10px]">({detection.distanceFromDroneM}m)</span>
+                {/* Floating Detection Tag */}
+                <div className="absolute -top-8 left-0 flex items-center gap-1.5 bg-white/95 backdrop-blur-md px-2.5 py-1 rounded-md border border-slate-300 text-xs font-mono whitespace-nowrap text-slate-900 group-hover:border-emerald-600 transition-colors shadow-lg">
+                  <FontAwesomeIcon icon={faPaw} className="w-3 h-3 text-emerald-600" />
+                  <span className="font-black tracking-wide">{detection.commonName.toUpperCase()}</span>
+                  <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1 py-0.5 rounded font-bold">
+                    {(detection.confidence * 100).toFixed(0)}%
+                  </span>
+                  <span className="text-slate-500 text-[10px]">({detection.distanceFromDroneM}m)</span>
+                </div>
+
+                {/* Bottom quick inspect trigger */}
+                <div className="absolute -bottom-5 right-0 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[9px] font-bold px-1.5 py-0.5 rounded font-mono flex items-center gap-1 shadow-xs">
+                  <FontAwesomeIcon icon={faEye} className="w-2.5 h-2.5" />
+                  INSPECT BIO
+                </div>
               </div>
-
-              {/* Bottom quick inspect trigger */}
-              <div className="absolute -bottom-5 right-0 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[9px] font-bold px-1.5 py-0.5 rounded font-mono flex items-center gap-1 shadow-xs">
-                <FontAwesomeIcon icon={faEye} className="w-2.5 h-2.5" />
-                INSPECT BIO
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
+      )}
 
       {/* Bottom Bar: GPS Coordinates, RTH distance, and Environmental Telemetry */}
       <div className="absolute bottom-4 left-6 right-6 flex items-center justify-between text-xs font-mono text-slate-800">

@@ -37,6 +37,7 @@ const DEFAULT_VIDEOS = [
   'final.mp4',
   'safari-feed-alpha.webm',
   'safari-feed-bravo.webm',
+  'safari-feed-charlie.webm',
   'final_test.mp4',
   'safari.webm',
   'safari_test.mp4',
@@ -78,7 +79,10 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
     const videos = await wildlifeDetectionService.listVideos();
     const outputs = await wildlifeDetectionService.listOutputVideos();
     if (videos && videos.length > 0) {
-      setAvailableVideos(Array.from(new Set([...DEFAULT_VIDEOS, ...videos])));
+      // Use backend API list as canonical source, fall back to DEFAULT_VIDEOS for offline mode
+      setAvailableVideos(videos);
+      // Auto-select the first video if current selection isn't in the API list
+      setSelectedVideo((prev) => (videos.includes(prev) ? prev : videos[0]));
     }
     if (outputs && outputs.length > 0) {
       setOutputVideos(outputs);
@@ -337,32 +341,38 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
                 </div>
               )}
 
-              {inferenceResult.unique_individuals !== undefined && (
+              <div className="flex items-center justify-between">
+                <span>Detection Events:</span>
+                <span className="text-slate-900 font-semibold">
+                  {inferenceResult.total_frame_detections ?? inferenceResult.detections} observations
+                </span>
+              </div>
+
+              {inferenceResult.tracking_active && (inferenceResult.tracked_individuals !== undefined || inferenceResult.unique_individuals !== undefined) ? (
                 <div className="flex items-center justify-between text-[10px] bg-emerald-100/70 px-2 py-0.5 rounded border border-emerald-300">
-                  <span className="text-emerald-900 font-bold">Unique Individuals (ByteTrack):</span>
+                  <span className="text-emerald-900 font-bold">Tracked Individuals:</span>
                   <span className="text-emerald-900 font-black text-xs">
-                    {inferenceResult.unique_individuals} animals
+                    {inferenceResult.tracked_individuals ?? inferenceResult.unique_individuals} unique tracks
                   </span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between text-[10px] bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                  <span className="text-amber-800 font-semibold">Tracked Individuals:</span>
+                  <span className="text-amber-800">No active tracks (single-frame mode or lost track)</span>
                 </div>
               )}
 
               <div className="flex items-center justify-between">
-                <span>Total Frame Detections:</span>
+                <span>Species Breakdown:</span>
                 <span className="text-slate-900 font-semibold">
-                  {inferenceResult.total_frame_detections ?? inferenceResult.detections}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>Unique by Species:</span>
-                <span className="text-slate-900 font-semibold">
-                  {Object.entries(inferenceResult.species_unique_counts || inferenceResult.species_frame_counts || inferenceResult.species_counts || {})
-                    .map(([k, v]) => `${k} (${v})`)
+                  {Object.entries(inferenceResult.species_tracked_counts || inferenceResult.species_unique_counts || inferenceResult.species_frame_counts || {})
+                    .map(([k, v]) => `${k} (${v} tracked)`)
                     .join(', ') || 'None'}
                 </span>
               </div>
 
               <div className="text-[9px] text-slate-500 italic pt-0.5 border-t border-emerald-200">
-                * Deduplicated using ByteTrack persistent object ID tracking.
+                * Detection Events counts all bounding-box observations across frames. Tracked Individuals reflects unique animal tracks observed via ByteTrack within this video (does not represent confirmed total population).
               </div>
             </div>
           )}

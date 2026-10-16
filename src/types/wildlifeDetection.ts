@@ -27,9 +27,12 @@ export interface ModelDetectionResponse {
   fps: number;
   duration_seconds: number;
   total_frame_detections: number;
-  detections: number; // backward compatibility alias
-  unique_individuals?: number;
-  species_unique_counts?: Record<string, number>;
+  detections: number; // backward compatibility alias for total_frame_detections
+  tracked_individuals?: number;
+  unique_individuals?: number; // backward compatibility alias for tracked_individuals
+  tracking_active?: boolean;
+  species_tracked_counts?: Record<string, number>;
+  species_unique_counts?: Record<string, number>; // backward compatibility alias
   species_frame_counts: Record<string, number>;
   species_counts: Record<string, number>; // backward compatibility alias
   inference_speed_ms?: number;

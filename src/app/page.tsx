@@ -15,7 +15,7 @@ import {
 import { WildlifeSighting } from '@/types/sightings';
 import { sightingsService } from '@/services/sightingsService';
 import { wildlifeDetectionService } from '@/services/wildlifeDetectionService';
-import { BackendHealth } from '@/types/wildlifeDetection';
+import { BackendHealth, ModelDetectionResponse } from '@/types/wildlifeDetection';
 import { SafariVideoPlayer } from '@/components/SafariVideoPlayer';
 import { TelemetryPanel } from '@/components/TelemetryPanel';
 import { SafariMap } from '@/components/SafariMap';
@@ -51,6 +51,8 @@ export default function SafariVisionApp() {
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
   const [isInferring, setIsInferring] = useState<boolean>(false);
+  const [inferenceResult, setInferenceResult] = useState<ModelDetectionResponse | null>(null);
+  const [inferenceError, setInferenceError] = useState<string | null>(null);
 
   // Load backend status, sightings, and driver location on mount
   useEffect(() => {
@@ -98,11 +100,13 @@ export default function SafariVisionApp() {
   const handleRunInference = async (videoName?: string) => {
     const targetVideo = videoName || currentStream.videoUrl.split('/').pop() || 'final_test.mp4';
     setIsInferring(true);
+    setInferenceError(null);
     try {
       const result = await wildlifeDetectionService.runDetection(targetVideo, {
         conf: 0.25,
         frameStride: 1,
       });
+      setInferenceResult(result);
 
       if (result.output_url) {
         const outputFilename = result.output_url.split('/').pop() || '';
@@ -128,8 +132,9 @@ export default function SafariVisionApp() {
 
         handleModelDetectionsLoaded(Array.from(speciesMap.values()));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Inference error:', err);
+      setInferenceError(err.message || 'Detection failed');
     } finally {
       setIsInferring(false);
     }

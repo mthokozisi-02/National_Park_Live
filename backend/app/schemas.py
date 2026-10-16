@@ -23,11 +23,14 @@ class DetectionResponse(BaseModel):
     frames_processed: int
     fps: float
     duration_seconds: float
-    total_frame_detections: Optional[int] = Field(None, description="Total animal bounding box detections across evaluated frames")
-    detections: int = Field(..., description="Total detections count")
-    unique_individuals: Optional[int] = Field(None, description="Total unique tracked individuals (deduplicated across frames)")
-    species_unique_counts: Dict[str, int] = Field(default_factory=dict, description="Unique individuals count per species")
-    species_frame_counts: Dict[str, int] = Field(default_factory=dict, description="Detections per species across frames")
+    total_frame_detections: Optional[int] = Field(None, description="Total animal bounding box detections across evaluated frames (Detection Events)")
+    detections: int = Field(..., description="Total detection events count across frames")
+    tracked_individuals: Optional[int] = Field(None, description="Total unique animal tracks observed via ByteTrack persistent IDs within this video feed")
+    unique_individuals: Optional[int] = Field(None, description="Backward-compatibility alias for tracked_individuals")
+    tracking_active: Optional[bool] = Field(False, description="Whether ByteTrack tracking IDs were detected")
+    species_tracked_counts: Dict[str, int] = Field(default_factory=dict, description="Unique tracked individuals count per species within this video feed")
+    species_unique_counts: Dict[str, int] = Field(default_factory=dict, description="Backward-compatibility alias for species_tracked_counts")
+    species_frame_counts: Dict[str, int] = Field(default_factory=dict, description="Detection events per species across frames")
     species_counts: Dict[str, int] = Field(default_factory=dict, description="Detections per species dictionary")
     inference_speed_ms: Optional[float] = Field(None, description="Average YOLO inference latency per frame in milliseconds")
     output_video: str

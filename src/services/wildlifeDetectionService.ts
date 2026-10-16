@@ -1,10 +1,7 @@
-import type { BackendHealth, ModelDetectionResponse, ModelDetectionItem } from '../types/wildlifeDetection.ts';
-import type { WildlifeDetection } from '../types/safari.ts';
+import type { BackendHealth, ModelDetectionResponse, ModelDetectionItem } from '../types/wildlifeDetection';
+import type { WildlifeDetection } from '../types/safari';
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_WILDLIFE_API_URL ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  'http://127.0.0.1:8000';
+import { API_BASE_URL } from '../config/api.ts';
 
 /**
  * Service to communicate with the FastAPI YOLO Wildlife Detection Backend.
