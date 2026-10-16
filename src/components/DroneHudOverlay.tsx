@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { DroneTelemetry, WildlifeDetection } from '@/types/safari';
 import { Crosshair, ShieldCheck, Eye, Sparkles } from 'lucide-react';
 import { formatCoordinate } from '@/utils/coordinates';
@@ -20,44 +20,6 @@ export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
   showThermal,
   onSelectAnimal,
 }) => {
-  // Real-time Detection Timing: Show identification for 2s, then clear for 5s to view animal clearly
-  const [isBoxVisible, setIsBoxVisible] = useState<boolean>(true);
-  const [cycleStatus, setCycleStatus] = useState<'showing' | 'clear'>('showing');
-
-  useEffect(() => {
-    if (!wildlifeDetections || wildlifeDetections.length === 0) {
-      setIsBoxVisible(true);
-      setCycleStatus('showing');
-      return;
-    }
-
-    let isMounted = true;
-    let timer: NodeJS.Timeout;
-
-    const runCycle = (show: boolean) => {
-      if (!isMounted) return;
-      if (show) {
-        setIsBoxVisible(true);
-        setCycleStatus('showing');
-        timer = setTimeout(() => {
-          runCycle(false);
-        }, 2000); // Display name and box for 2 seconds
-      } else {
-        setIsBoxVisible(false);
-        setCycleStatus('clear');
-        timer = setTimeout(() => {
-          runCycle(true);
-        }, 5000); // Hide for 5 seconds so the animal can be clearly seen
-      }
-    };
-
-    runCycle(true);
-
-    return () => {
-      isMounted = false;
-      clearTimeout(timer);
-    };
-  }, [wildlifeDetections.map((d) => d.id).join(',')]);
 
   // Compass heading tape ticks
   const compassTicks = [-40, -30, -20, -10, 0, 10, 20, 30, 40];
@@ -222,26 +184,8 @@ export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
         </div>
       </div>
 
-      {/* 2s Show / 5s Clear Notification Banner (Top Center) */}
-      {showAiVision && wildlifeDetections.length > 0 && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-mono shadow-lg backdrop-blur-md transition-all duration-300">
-          {cycleStatus === 'showing' ? (
-            <div className="bg-amber-500/90 text-black font-bold px-3 py-0.5 rounded-full flex items-center gap-1.5 animate-pulse shadow-[0_0_12px_rgba(245,158,11,0.5)]">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>AI IDENTIFIED: {wildlifeDetections[0]?.commonName.toUpperCase()} (Showing name for 2s)</span>
-            </div>
-          ) : (
-            <div className="bg-emerald-950/85 border border-emerald-500/50 text-emerald-300 px-3 py-0.5 rounded-full flex items-center gap-1.5 shadow-[0_0_12px_rgba(16,185,129,0.3)]">
-              <Eye className="w-3.5 h-3.5 text-emerald-400" />
-              <span>OBSERVATION WINDOW (5s clear): Viewing animal clearly</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* AI Wildlife Vision Overlays (Bounding Boxes - Displayed for 2s, hidden for 5s) */}
+      {/* AI Wildlife Vision Overlays (Bounding Boxes) */}
       {showAiVision &&
-        isBoxVisible &&
         wildlifeDetections.map((detection) => {
           const rawLeft = detection.box.x <= 1 ? detection.box.x * 100 : detection.box.x;
           const rawTop = detection.box.y <= 1 ? detection.box.y * 100 : detection.box.y;
@@ -271,7 +215,7 @@ export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
               <div className="absolute -bottom-1 -left-1 w-2.5 h-2.5 border-b-2 border-l-2 border-amber-400 group-hover:border-emerald-400" />
               <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 border-b-2 border-r-2 border-amber-400 group-hover:border-emerald-400" />
 
-              {/* Floating Detection Tag (Shown for 2s) */}
+              {/* Floating Detection Tag */}
               <div className="absolute -top-8 left-0 flex items-center gap-1.5 bg-black/90 backdrop-blur-md px-2.5 py-1 rounded border border-amber-400 text-xs font-mono whitespace-nowrap text-amber-300 group-hover:border-emerald-400 group-hover:text-emerald-300 transition-colors shadow-lg">
                 <Sparkles className="w-3.5 h-3.5 text-amber-400 group-hover:text-emerald-400" />
                 <span className="font-black tracking-wide">{detection.commonName.toUpperCase()}</span>
