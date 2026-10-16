@@ -112,9 +112,10 @@ const FALLBACK_SIGHTINGS: WildlifeSighting[] = [
 
 export const sightingsService = {
   /**
-   * Fetch wildlife sightings with optional species and age filters
+   * Fetch wildlife sightings with optional species and age filters.
+   * By default, fetches from real SQLite /api/sightings database.
    */
-  async getSightings(options?: SightingFilterOptions): Promise<WildlifeSighting[]> {
+  async getSightings(options?: SightingFilterOptions, allowFallback: boolean = false): Promise<WildlifeSighting[]> {
     try {
       const params = new URLSearchParams();
       if (options?.species && options.species !== 'all') {
@@ -138,13 +139,40 @@ export const sightingsService = {
       }
 
       const data = await response.json();
-      if (Array.isArray(data) && data.length > 0) {
-        return data;
+      if (Array.isArray(data)) {
+        if (data.length > 0 || !allowFallback) {
+          return data;
+        }
       }
-      return this.filterFallbackSightings(options);
+      return allowFallback ? this.filterFallbackSightings(options) : [];
     } catch (err) {
-      console.warn('Failed to fetch from /api/sightings, utilizing local fallback sightings:', err);
-      return this.filterFallbackSightings(options);
+      if (allowFallback) {
+        console.warn('Failed to fetch from /api/sightings, utilizing local fallback sightings:', err);
+        return this.filterFallbackSightings(options);
+      }
+      console.warn('Failed to fetch from /api/sightings:', err);
+      return [];
+    }
+  },
+
+  /**
+   * Post a verified wildlife sighting with GPS coordinates and observation metadata
+   */
+  async recordSighting(sighting: Partial<WildlifeSighting>): Promise<WildlifeSighting | null> {
+    try {
+      const res = await fetch(`${API_BASE}/api/sightings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(sighting),
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (err) {
+      console.warn('Failed to record sighting to /api/sightings:', err);
+      return null;
     }
   },
 

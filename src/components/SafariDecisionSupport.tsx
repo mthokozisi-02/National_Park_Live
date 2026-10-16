@@ -32,6 +32,8 @@ import {
   faLightbulb,
   faBinoculars,
   faMapLocationDot,
+  faDatabase,
+  faVideo,
 } from '@fortawesome/free-solid-svg-icons';
 import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 
@@ -40,7 +42,8 @@ interface SafariDecisionSupportProps {
   driverLocation: { lat: number; lng: number } | null;
   onNavigateToSighting: (sighting: WildlifeSighting) => void;
   activeDestinationId?: string | null;
-  onResetToDefaultSightings?: () => void;
+  onRefreshSightings?: () => void;
+  isSightingsLoading?: boolean;
 }
 
 const PRIORITY_MODES: {
@@ -80,7 +83,8 @@ export const SafariDecisionSupport: React.FC<SafariDecisionSupportProps> = ({
   driverLocation,
   onNavigateToSighting,
   activeDestinationId,
-  onResetToDefaultSightings,
+  onRefreshSightings,
+  isSightingsLoading = false,
 }) => {
   const [priorityMode, setPriorityMode] = useState<DriverPriorityMode>('balanced');
   const [recommendations, setRecommendations] = useState<DestinationRecommendation[]>([]);
@@ -132,10 +136,11 @@ export const SafariDecisionSupport: React.FC<SafariDecisionSupportProps> = ({
             <FontAwesomeIcon icon={faRoute} className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="font-bold text-sm tracking-wide text-slate-900 flex items-center gap-1.5">
+            <h3 className="font-bold text-sm tracking-wide text-slate-900 flex items-center gap-2">
               <span>SAFARI DECISION SUPPORT</span>
-              <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200 font-semibold">
-                PHASE 3
+              <span className="text-[10px] bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded border border-emerald-200 font-semibold flex items-center gap-1.5 shadow-2xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>LIVE DISPATCH</span>
               </span>
             </h3>
             <p className="text-[11px] text-slate-500 font-sans">
@@ -144,27 +149,52 @@ export const SafariDecisionSupport: React.FC<SafariDecisionSupportProps> = ({
           </div>
         </div>
 
-        {/* Dispatch Origin Indicator */}
-        <div className="flex items-center gap-2 text-[10px] bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 shadow-2xs">
-          <FontAwesomeIcon icon={faCarSide} className="w-3.5 h-3.5 text-blue-600" />
-          <span>
-            Dispatching from:{' '}
-            <strong className="text-slate-900">
-              {useParkBase || !driverLocation
-                ? 'Hwange Main Camp'
-                : isDriverInPark
-                ? 'Live GPS Vehicle'
-                : 'Hwange Main Camp (Remote GPS)'}
-            </strong>
-          </span>
-          {driverLocation && isDriverInPark && (
-            <button
-              onClick={() => setUseParkBase(!useParkBase)}
-              className="text-emerald-700 underline hover:text-emerald-800 ml-1 cursor-pointer font-semibold"
-            >
-              {useParkBase ? 'Use GPS' : 'Use Park Gate'}
-            </button>
-          )}
+        {/* Data Provenance & Origin Indicators */}
+        <div className="flex flex-wrap items-center gap-2 text-[10px]">
+          {/* Database Provenance */}
+          <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 shadow-2xs">
+            <FontAwesomeIcon icon={faDatabase} className="w-3 h-3 text-emerald-600" />
+            <span>
+              Source: <strong className="text-slate-900">Model DB</strong> ({sightings.length})
+            </span>
+            {onRefreshSightings && (
+              <button
+                onClick={onRefreshSightings}
+                disabled={isSightingsLoading}
+                title="Refresh sightings from backend database"
+                className="ml-1 text-emerald-700 hover:text-emerald-900 cursor-pointer font-bold flex items-center gap-1"
+              >
+                <FontAwesomeIcon
+                  icon={faRotateLeft}
+                  className={`w-2.5 h-2.5 ${isSightingsLoading ? 'animate-spin' : ''}`}
+                />
+                <span>{isSightingsLoading ? 'Syncing...' : 'Sync'}</span>
+              </button>
+            )}
+          </div>
+
+          {/* Dispatch Origin Indicator */}
+          <div className="flex items-center gap-2 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 shadow-2xs">
+            <FontAwesomeIcon icon={faCarSide} className="w-3.5 h-3.5 text-blue-600" />
+            <span>
+              Origin:{' '}
+              <strong className="text-slate-900">
+                {useParkBase || !driverLocation
+                  ? 'Main Camp'
+                  : isDriverInPark
+                  ? 'GPS Vehicle'
+                  : 'Main Camp (Remote GPS)'}
+              </strong>
+            </span>
+            {driverLocation && isDriverInPark && (
+              <button
+                onClick={() => setUseParkBase(!useParkBase)}
+                className="text-emerald-700 underline hover:text-emerald-800 ml-1 cursor-pointer font-semibold"
+              >
+                {useParkBase ? 'Use GPS' : 'Use Gate'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -205,13 +235,17 @@ export const SafariDecisionSupport: React.FC<SafariDecisionSupportProps> = ({
         {recommendations.length === 0 ? (
           <div className="text-center py-6 px-4 text-xs text-slate-600 font-sans bg-slate-50 rounded-lg border border-slate-200 flex flex-col items-center gap-2">
             <span className="italic">No active wildlife sightings match the current criteria.</span>
-            {onResetToDefaultSightings && (
+            {onRefreshSightings && (
               <button
-                onClick={onResetToDefaultSightings}
+                onClick={onRefreshSightings}
+                disabled={isSightingsLoading}
                 className="mt-1 bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 font-mono text-[11px] font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-2xs cursor-pointer"
               >
-                <FontAwesomeIcon icon={faRotateLeft} className="w-3 h-3 text-emerald-600" />
-                <span>LOAD HWANGE SIGHTINGS CATALOG</span>
+                <FontAwesomeIcon
+                  icon={faRotateLeft}
+                  className={`w-3 h-3 text-emerald-600 ${isSightingsLoading ? 'animate-spin' : ''}`}
+                />
+                <span>{isSightingsLoading ? 'FETCHING DATABASE SIGHTINGS...' : 'REFRESH FROM SIGHTINGS DATABASE'}</span>
               </button>
             )}
           </div>
@@ -268,7 +302,7 @@ export const SafariDecisionSupport: React.FC<SafariDecisionSupportProps> = ({
                   </div>
                 </div>
 
-                {/* Metrics Pill Bar: Distance, Drive Time, Freshness */}
+                {/* Metrics Pill Bar: Distance, Drive Time, Freshness, Provenance */}
                 <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-700">
                   <span className="flex items-center gap-1 bg-white px-2 py-0.5 rounded border border-slate-200 shadow-2xs font-semibold">
                     <FontAwesomeIcon icon={faRoad} className="w-3 h-3 text-blue-600" />
@@ -284,6 +318,23 @@ export const SafariDecisionSupport: React.FC<SafariDecisionSupportProps> = ({
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                     <span>{rec.keyFactors.freshnessLabel}</span>
                   </span>
+
+                  {/* Real Video Source & Track Provenance */}
+                  <span className="flex items-center gap-1 bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-medium">
+                    <FontAwesomeIcon icon={faVideo} className="w-2.5 h-2.5 text-slate-500" />
+                    <span>{rec.sighting.source_video || 'Live Camera'}</span>
+                    {rec.sighting.track_id !== undefined && rec.sighting.track_id !== null && (
+                      <span className="ml-1 bg-emerald-100 text-emerald-800 font-bold px-1 rounded text-[9px]">
+                        Track #{rec.sighting.track_id}
+                      </span>
+                    )}
+                  </span>
+
+                  {rec.sighting.confidence && (
+                    <span className="bg-white text-slate-600 px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs text-[9px] font-mono">
+                      {(rec.sighting.confidence * 100).toFixed(0)}% conf
+                    </span>
+                  )}
                 </div>
 
                 {/* Explainable Reasoning Block */}

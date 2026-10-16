@@ -232,10 +232,15 @@ export const ArchitectureModal: React.FC<ArchitectureModalProps> = ({
                   </div>
                 </div>
 
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-2xs flex items-start gap-4">
-                  <span className="bg-slate-900 text-white font-bold font-mono text-xs px-2.5 py-1 rounded">PHASE 3</span>
+                <div className="bg-slate-50 p-4 rounded-xl border border-emerald-300 shadow-2xs flex items-start gap-4">
+                  <span className="bg-emerald-600 text-white font-bold font-mono text-xs px-2.5 py-1 rounded">DELIVERED</span>
                   <div>
-                    <h4 className="font-bold text-slate-900 text-sm">Decision Support & Route Guidance</h4>
+                    <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                      <span>Decision Support & Route Guidance</span>
+                      <span className="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded font-mono font-semibold">
+                        ACTIVE
+                      </span>
+                    </h4>
                     <p className="text-xs text-slate-600 mt-1 font-sans">
                       Provide game-drive dispatch optimization, road routing calculations, distance matrices, and multi-criteria sighting ranking for vehicle guides.
                     </p>

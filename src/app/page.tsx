@@ -45,30 +45,39 @@ export default function SafariVisionApp() {
   const [isArchModalOpen, setIsArchModalOpen] = useState<boolean>(false);
   const [isAnalyticsModalOpen, setIsAnalyticsModalOpen] = useState<boolean>(false);
   const [activeDestination, setActiveDestination] = useState<WildlifeSighting | null>(null);
-  const [sightings, setSightings] = useState<WildlifeSighting[]>(() =>
-    sightingsService.filterFallbackSightings()
-  );
+  const [sightings, setSightings] = useState<WildlifeSighting[]>([]);
+  const [isSightingsLoading, setIsSightingsLoading] = useState<boolean>(true);
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
   const [isInferring, setIsInferring] = useState<boolean>(false);
   const [inferenceResult, setInferenceResult] = useState<ModelDetectionResponse | null>(null);
   const [inferenceError, setInferenceError] = useState<string | null>(null);
 
+  const loadSightings = useCallback(async () => {
+    setIsSightingsLoading(true);
+    try {
+      const fetched = await sightingsService.getSightings();
+      if (fetched) {
+        setSightings(fetched);
+      }
+    } catch (e) {
+      console.warn('Could not load sightings from database:', e);
+    } finally {
+      setIsSightingsLoading(false);
+    }
+  }, []);
+
   // Load backend status, sightings, and driver location on mount
   useEffect(() => {
     wildlifeDetectionService.checkHealth().then(setBackendHealth);
-    sightingsService.getSightings().then((fetched) => {
-      if (fetched && fetched.length > 0) {
-        setSightings(fetched);
-      }
-    });
+    loadSightings();
     if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setDriverLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
         () => {}
       );
     }
-  }, []);
+  }, [loadSightings]);
 
   const handleModelDetectionsLoaded = (modelDetections: WildlifeDetection[]) => {
     setWildlifeDetections(modelDetections);
@@ -77,7 +86,7 @@ export default function SafariVisionApp() {
       detectedWildlife: modelDetections,
     }));
     // Refresh sightings database to include newly detected video observations
-    sightingsService.getSightings().then(setSightings);
+    loadSightings();
   };
 
   const handlePlayVideoOnMainScreen = (videoUrl: string, title: string) => {
@@ -140,46 +149,75 @@ export default function SafariVisionApp() {
     }
   };
 
-  const handleLiveDetectionsFound = useCallback((liveDetections: WildlifeDetection[]) => {
-    if (liveDetections.length > 0) {
-      setWildlifeDetections((prev) => {
-        const speciesMap = new Map<string, WildlifeDetection>();
-        // Calculate true individual counts detected in this frame from best_finetuned.pt
-        const speciesCounts = new Map<string, number>();
-        liveDetections.forEach((d) => {
-          speciesCounts.set(d.commonName, (speciesCounts.get(d.commonName) || 0) + 1);
+  const handleLiveDetectionsFound = useCallback(
+    (liveDetections: WildlifeDetection[]) => {
+      if (liveDetections.length > 0) {
+        setWildlifeDetections((prev) => {
+          const speciesMap = new Map<string, WildlifeDetection>();
+          // Calculate true individual counts detected in this frame from best_finetuned.pt
+          const speciesCounts = new Map<string, number>();
+          liveDetections.forEach((d) => {
+            speciesCounts.set(d.commonName, (speciesCounts.get(d.commonName) || 0) + 1);
+          });
+
+          liveDetections.forEach((d) => {
+            if (!speciesMap.has(d.commonName)) {
+              speciesMap.set(d.commonName, {
+                ...d,
+                count: speciesCounts.get(d.commonName) || 1,
+              });
+            }
+          });
+
+          // Retain animals observed during this active session
+          prev.forEach((d) => {
+            if (!speciesMap.has(d.commonName)) {
+              speciesMap.set(d.commonName, d);
+            }
+          });
+          return Array.from(speciesMap.values());
         });
 
-        liveDetections.forEach((d) => {
-          if (!speciesMap.has(d.commonName)) {
-            speciesMap.set(d.commonName, {
-              ...d,
-              count: speciesCounts.get(d.commonName) || 1,
-            });
-          }
-        });
+        // Inject live YOLO camera detections into sightings for instant real-time Safari Decision Support
+        setSightings((prevSightings) => {
+          const nowIso = new Date().toISOString();
+          const liveSightings: WildlifeSighting[] = liveDetections.map((det) => ({
+            id: `live-${det.commonName.toLowerCase().replace(/\s+/g, '-')}`,
+            species: det.species,
+            common_name: det.commonName,
+            confidence: det.confidence,
+            count: det.count || 1,
+            latitude: currentStream.coordinates[0],
+            longitude: currentStream.coordinates[1],
+            altitude_m: telemetry.altitude || 1045,
+            timestamp: nowIso,
+            source_video: currentStream.name || 'Live Camera Feed',
+            source_frame: 0,
+            track_id: undefined,
+            notes: `Live YOLO detection on ${currentStream.name} (${(det.confidence * 100).toFixed(0)}% conf)`,
+          }));
 
-        // Retain animals observed during this active session
-        prev.forEach((d) => {
-          if (!speciesMap.has(d.commonName)) {
-            speciesMap.set(d.commonName, d);
-          }
+          const liveSpecies = new Set(liveSightings.map((s) => s.common_name));
+          const nonDupePrev = prevSightings.filter(
+            (s) => !s.id.startsWith('live-') || !liveSpecies.has(s.common_name)
+          );
+          return [...liveSightings, ...nonDupePrev];
         });
-        return Array.from(speciesMap.values());
-      });
-    }
-
-    // Reflect the EXACT current frame detections on the active HUD
-    setCurrentStream((prev) => {
-      if (prev.detectedWildlife.length === 0 && liveDetections.length === 0) {
-        return prev;
       }
-      return {
-        ...prev,
-        detectedWildlife: liveDetections,
-      };
-    });
-  }, []);
+
+      // Reflect the EXACT current frame detections on the active HUD
+      setCurrentStream((prev) => {
+        if (prev.detectedWildlife.length === 0 && liveDetections.length === 0) {
+          return prev;
+        }
+        return {
+          ...prev,
+          detectedWildlife: liveDetections,
+        };
+      });
+    },
+    [currentStream.coordinates, currentStream.name, telemetry.altitude]
+  );
 
   // Background Drone Flight Simulation
   useEffect(() => {
@@ -364,13 +402,14 @@ export default function SafariVisionApp() {
               }}
             />
 
-            {/* Safari Decision Support Panel (Phase 3) */}
+            {/* Safari Decision Support Panel */}
             <SafariDecisionSupport
               sightings={sightings}
               driverLocation={driverLocation}
               onNavigateToSighting={(s) => setActiveDestination(s)}
               activeDestinationId={activeDestination?.id}
-              onResetToDefaultSightings={() => setSightings(sightingsService.filterFallbackSightings())}
+              onRefreshSightings={loadSightings}
+              isSightingsLoading={isSightingsLoading}
             />
           </div>
 
