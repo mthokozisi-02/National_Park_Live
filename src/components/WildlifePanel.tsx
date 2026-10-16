@@ -27,44 +27,56 @@ interface WildlifePanelProps {
   currentVideoName?: string;
 }
 
+const DEFAULT_VIDEOS = [
+  'final.mp4',
+  'safari-feed-alpha.webm',
+  'safari-feed-bravo.webm',
+  'final_test.mp4',
+  'safari.webm',
+  'safari_test.mp4',
+  'test.mp4',
+];
+
 export const WildlifePanel: React.FC<WildlifePanelProps> = ({
   detections,
   selectedAnimal,
   onSelectAnimal,
   onModelDetectionsLoaded,
   onPlayVideoOnMainScreen,
-  currentVideoName = 'safari-feed-alpha.webm',
+  currentVideoName = 'final.mp4',
 }) => {
   const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
   const [isCheckingBackend, setIsCheckingBackend] = useState<boolean>(true);
   const [isInferring, setIsInferring] = useState<boolean>(false);
   const [inferenceResult, setInferenceResult] = useState<ModelDetectionResponse | null>(null);
   const [inferenceError, setInferenceError] = useState<string | null>(null);
-  const [availableVideos, setAvailableVideos] = useState<string[]>([]);
-  const [selectedVideo, setSelectedVideo] = useState<string>('');
-  const [scanMode, setScanMode] = useState<'full' | 'preview'>('preview');
+  const [availableVideos, setAvailableVideos] = useState<string[]>(DEFAULT_VIDEOS);
+  const [selectedVideo, setSelectedVideo] = useState<string>('final.mp4');
+  const [scanMode, setScanMode] = useState<'full' | 'preview'>('full');
   const [lastOutputVideoUrl, setLastOutputVideoUrl] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'catalog' | 'model'>('catalog');
 
-  // Check FastAPI backend status on mount
-  useEffect(() => {
-    let isMounted = true;
-    async function check() {
-      setIsCheckingBackend(true);
-      const health = await wildlifeDetectionService.checkHealth();
-      const videos = await wildlifeDetectionService.listVideos();
-      if (isMounted) {
-        setBackendHealth(health);
-        setAvailableVideos(videos);
-        if (videos.length > 0 && !selectedVideo) {
-          setSelectedVideo(videos[0]);
-        }
-        setIsCheckingBackend(false);
-      }
+  // Check FastAPI backend status
+  const checkBackendStatus = async () => {
+    setIsCheckingBackend(true);
+    const health = await wildlifeDetectionService.checkHealth();
+    const videos = await wildlifeDetectionService.listVideos();
+    setBackendHealth(health);
+    if (videos && videos.length > 0) {
+      setAvailableVideos(Array.from(new Set([...DEFAULT_VIDEOS, ...videos])));
     }
-    check();
-    return () => { isMounted = false; };
+    setIsCheckingBackend(false);
+  };
+
+  useEffect(() => {
+    checkBackendStatus();
   }, []);
+
+  const handlePlayOnMainScreen = (videoName: string) => {
+    if (onPlayVideoOnMainScreen) {
+      onPlayVideoOnMainScreen(`/videos/${videoName}`, `${videoName} (Live Safari Feed)`);
+    }
+  };
 
   // Trigger real YOLO detection via FastAPI
   const handleRunInference = async () => {
@@ -157,125 +169,140 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
           Run the Ultralytics YOLOv8 neural network against sample safari video footage to detect live wildlife with real bounding boxes.
         </p>
 
-        {backendHealth ? (
-          <div className="flex flex-col gap-2 pt-1">
-            {/* Video Selection Dropdown */}
-            <div className="flex items-center gap-2">
-              <Video className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
-              <select
-                value={selectedVideo}
-                onChange={(e) => setSelectedVideo(e.target.value)}
-                disabled={isInferring}
-                className="flex-1 bg-slate-950 border border-slate-700 hover:border-cyan-500 text-gray-200 px-2 py-1 rounded text-xs font-mono focus:outline-none cursor-pointer disabled:opacity-50"
-              >
-                {availableVideos.length > 0 ? (
-                  availableVideos.map((v) => (
-                    <option key={v} value={v}>{v}</option>
-                  ))
-                ) : (
-                  <option value="">No videos found</option>
-                )}
-              </select>
-            </div>
-
-            {/* Scan Mode Toggle */}
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setScanMode('preview')}
-                disabled={isInferring}
-                className={`flex-1 text-[10px] font-bold py-1 rounded transition-all ${
-                  scanMode === 'preview'
-                    ? 'bg-cyan-500/20 border border-cyan-400 text-cyan-300'
-                    : 'bg-slate-950 border border-slate-800 text-gray-500 hover:text-gray-300'
-                } disabled:opacity-50`}
-              >
-                QUICK PREVIEW (100 frames)
-              </button>
-              <button
-                onClick={() => setScanMode('full')}
-                disabled={isInferring}
-                className={`flex-1 text-[10px] font-bold py-1 rounded transition-all ${
-                  scanMode === 'full'
-                    ? 'bg-amber-500/20 border border-amber-400 text-amber-300'
-                    : 'bg-slate-950 border border-slate-800 text-gray-500 hover:text-gray-300'
-                } disabled:opacity-50`}
-              >
-                FULL VIDEO SCAN
-              </button>
-            </div>
-
-            {/* Run Inference Button */}
-            <button
-              onClick={() => handleRunInference()}
-              disabled={isInferring || !selectedVideo}
-              className="flex items-center justify-center gap-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-bold py-1.5 px-3 rounded text-xs transition-all disabled:opacity-50 cursor-pointer shadow-md"
+        <div className="flex flex-col gap-2.5 pt-1">
+          {/* Video Selection Dropdown - Always Available */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-cyan-400">
+                <Video className="w-3.5 h-3.5" /> SELECT VIDEO FOOTAGE:
+              </span>
+              <span className="text-[9px] text-gray-500 font-mono">
+                {availableVideos.length} videos available
+              </span>
+            </label>
+            <select
+              value={selectedVideo}
+              onChange={(e) => {
+                setSelectedVideo(e.target.value);
+                handlePlayOnMainScreen(e.target.value);
+              }}
+              disabled={isInferring}
+              className="w-full bg-slate-950 border border-slate-700 hover:border-cyan-500 text-gray-200 px-2.5 py-1.5 rounded text-xs font-mono focus:outline-none cursor-pointer disabled:opacity-50"
             >
-              {isInferring ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>RUNNING INFERENCE{scanMode === 'full' ? ' (FULL VIDEO)' : ''}...</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>SCAN {selectedVideo ? selectedVideo.toUpperCase() : 'VIDEO'}</span>
-                </>
-              )}
+              {availableVideos.map((v) => (
+                <option key={v} value={v}>
+                  {v === 'final.mp4' ? '🌟 final.mp4 (Full 3m 4s Safari Video)' : v}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Action Buttons: Real-Time Play/Scan vs Full Batch Scan */}
+          <div className="flex flex-col gap-2">
+            {/* Real-time Play on Main Screen Button */}
+            <button
+              onClick={() => handlePlayOnMainScreen(selectedVideo)}
+              className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black py-2 px-3 rounded-lg text-xs transition-all shadow-lg hover:shadow-emerald-500/20 cursor-pointer"
+            >
+              <Play className="w-4 h-4 fill-current" />
+              <span>▶ PLAY & SCAN ON MAIN DISPLAY (REAL TIME)</span>
             </button>
 
-            {/* Inference Result Summary Banner */}
-            {inferenceResult && (
-              <div className="bg-emerald-950/40 border border-emerald-500/40 rounded p-2 text-[10px] text-gray-300 flex flex-col gap-1">
-                <div className="flex items-center justify-between text-emerald-400 font-bold">
-                  <span className="flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" /> YOLO INFERENCE COMPLETE
-                  </span>
-                  <span>{inferenceResult.frames_processed} frames ({inferenceResult.duration_seconds}s)</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Total Frame Detections:</span>
-                  <span className="text-amber-300 font-semibold">
-                    {inferenceResult.total_frame_detections ?? inferenceResult.detections}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Detections by Class:</span>
-                  <span className="text-amber-300 font-semibold">
-                    {Object.entries(inferenceResult.species_frame_counts || inferenceResult.species_counts || {})
-                      .map(([k, v]) => `${k} (${v})`)
-                      .join(', ') || 'None'}
-                  </span>
-                </div>
-
-                {/* Play Annotated Output on Main Screen */}
-                {lastOutputVideoUrl && onPlayVideoOnMainScreen && (
-                  <button
-                    onClick={() => onPlayVideoOnMainScreen(lastOutputVideoUrl, `${selectedVideo} — AI Annotated`)}
-                    className="mt-1 flex items-center justify-center gap-1.5 bg-cyan-500 hover:bg-cyan-400 text-black font-bold py-1.5 px-3 rounded text-[11px] transition-all cursor-pointer shadow-md"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>▶ PLAY ANNOTATED VIDEO ON MAIN SCREEN</span>
-                  </button>
+            {/* Batch YOLO Scan Button */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleRunInference()}
+                disabled={isInferring || !backendHealth}
+                className="flex-1 flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-amber-500/50 text-amber-300 font-bold py-1.5 px-3 rounded text-xs transition-all disabled:opacity-50 cursor-pointer"
+                title={backendHealth ? 'Run YOLO inference across all frames' : 'Backend required for batch export'}
+              >
+                {isInferring ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>SCANNING ALL FRAMES...</span>
+                  </>
+                ) : (
+                  <>
+                    <Cpu className="w-3.5 h-3.5 text-amber-400" />
+                    <span>⚡ BATCH SCAN (ALL FRAMES)</span>
+                  </>
                 )}
-
-                <div className="text-[9px] text-gray-400 italic pt-0.5 border-t border-emerald-900/40">
-                  * Frame detections count appearances across evaluated frames. Unique animal counts will be tracked via ByteTrack in Milestone 2.
-                </div>
-              </div>
-            )}
-
-            {inferenceError && (
-              <div className="bg-red-950/40 border border-red-500/40 rounded p-2 text-[10px] text-red-300 flex items-center gap-1.5">
-                <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
-                <span>{inferenceError}</span>
-              </div>
-            )}
+              </button>
+            </div>
           </div>
-        ) : (
-          <div className="bg-slate-950 p-2 rounded border border-slate-800 text-[10px] text-gray-400">
-            Backend API offline. Launching via: <code className="text-amber-300">uvicorn app.main:app --port 8000</code>
-          </div>
-        )}
+
+          {/* Inference Result Summary Banner */}
+          {inferenceResult && (
+            <div className="bg-emerald-950/40 border border-emerald-500/40 rounded p-2 text-[10px] text-gray-300 flex flex-col gap-1">
+              <div className="flex items-center justify-between text-emerald-400 font-bold">
+                <span className="flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> YOLO INFERENCE COMPLETE
+                </span>
+                <span>{inferenceResult.frames_processed} frames ({inferenceResult.duration_seconds}s)</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Total Frame Detections:</span>
+                <span className="text-amber-300 font-semibold">
+                  {inferenceResult.total_frame_detections ?? inferenceResult.detections}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Detections by Class:</span>
+                <span className="text-amber-300 font-semibold">
+                  {Object.entries(inferenceResult.species_frame_counts || inferenceResult.species_counts || {})
+                    .map(([k, v]) => `${k} (${v})`)
+                    .join(', ') || 'None'}
+                </span>
+              </div>
+
+              {/* Play Annotated Output on Main Screen */}
+              {lastOutputVideoUrl && onPlayVideoOnMainScreen && (
+                <button
+                  onClick={() => onPlayVideoOnMainScreen(lastOutputVideoUrl, `${selectedVideo} — AI Annotated`)}
+                  className="mt-1 flex items-center justify-center gap-1.5 bg-cyan-500 hover:bg-cyan-400 text-black font-bold py-1.5 px-3 rounded text-[11px] transition-all cursor-pointer shadow-md"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>▶ PLAY ANNOTATED VIDEO ON MAIN SCREEN</span>
+                </button>
+              )}
+
+              <div className="text-[9px] text-gray-400 italic pt-0.5 border-t border-emerald-900/40">
+                * Frame detections count appearances across evaluated frames.
+              </div>
+            </div>
+          )}
+
+          {inferenceError && (
+            <div className="bg-red-950/40 border border-red-500/40 rounded p-2 text-[10px] text-red-300 flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+              <span>{inferenceError}</span>
+            </div>
+          )}
+
+          {/* Backend Offline Guidance Card */}
+          {!backendHealth && (
+            <div className="bg-slate-950/90 border border-amber-500/30 rounded p-2 text-[10px] text-gray-300 flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-amber-300 font-bold flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                  FastAPI Backend Offline
+                </span>
+                <button
+                  onClick={checkBackendStatus}
+                  className="text-[9px] bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 px-2 py-0.5 rounded border border-amber-500/40 font-bold cursor-pointer"
+                >
+                  Retry Connect
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-400">
+                Real-time video plays in the main display. To enable custom YOLO batch export, start your backend:
+              </p>
+              <code className="text-amber-200 bg-black/60 px-1.5 py-0.5 rounded font-mono text-[9px] select-all">
+                .\backend\.venv\Scripts\uvicorn.exe app.main:app --port 8000
+              </code>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Sightings List */}

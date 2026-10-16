@@ -64,12 +64,11 @@ __pycache__/
 *.onnx
 backend/output/
 backend/videos/
+public/videos/*.mp4
+public/videos/safari.webm
+datasets/
+!datasets/**/.gitkeep
 training/runs/
-datasets/african_wildlife/images/
-datasets/african_wildlife/labels/
-datasets/african_wildlife/extracted_raw/
-datasets/extracted_frames/
-backend/models/*.pt
 *.zip
 *.tar.gz
 

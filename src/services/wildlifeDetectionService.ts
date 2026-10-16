@@ -90,6 +90,33 @@ export const wildlifeDetectionService = {
   },
 
   /**
+   * Run real-time detection on a single video frame blob
+   */
+  async detectFrame(
+    imageBlob: Blob,
+    conf: number = 0.25
+  ): Promise<WildlifeDetection[]> {
+    try {
+      const formData = new FormData();
+      formData.append('file', imageBlob, 'frame.jpg');
+
+      const res = await fetch(`${API_BASE_URL}/api/detect/frame?conf=${conf}`, {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+        body: formData,
+      });
+
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data.detections || []).map((det: any, idx: number) =>
+        wildlifeDetectionService.convertToWildlifeDetection(det, 1, 'Live Stream', idx)
+      );
+    } catch {
+      return [];
+    }
+  },
+
+  /**
    * Get direct URL to processed annotated video
    */
   getOutputVideoUrl(filename: string): string {

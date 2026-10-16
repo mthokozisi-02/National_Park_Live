@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { SafariCameraStream, DroneTelemetry, WildlifeDetection, StreamStatus } from '@/types/safari';
 import { DroneHudOverlay } from './DroneHudOverlay';
 import { savannaAudio } from '@/utils/audioSynthesizer';
+import { wildlifeDetectionService } from '@/services/wildlifeDetectionService';
 import {
   Play,
   Pause,
@@ -20,7 +21,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Loader2,
-  Download
+  Download,
+  Scan
 } from 'lucide-react';
 
 interface SafariVideoPlayerProps {
@@ -29,6 +31,7 @@ interface SafariVideoPlayerProps {
   telemetry: DroneTelemetry;
   onSelectStream: (stream: SafariCameraStream) => void;
   onSelectAnimal: (animal: WildlifeDetection) => void;
+  onLiveDetectionsFound?: (detections: WildlifeDetection[]) => void;
   showAiVision: boolean;
   setShowAiVision: (val: boolean) => void;
   showThermal: boolean;
@@ -42,6 +45,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
   telemetry,
   onSelectStream,
   onSelectAnimal,
+  onLiveDetectionsFound,
   showAiVision,
   setShowAiVision,
   showThermal,
@@ -78,6 +82,54 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
     }, 2000);
     return () => clearInterval(interval);
   }, []);
+
+  // Real-time Video Frame Scanner using YOLOv8
+  const scanCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    if (!showAiVision) return;
+
+    let isScanningFrame = false;
+
+    const scanInterval = setInterval(async () => {
+      const video = videoRef.current;
+      if (!video || video.paused || video.ended || video.readyState < 2 || isScanningFrame) return;
+
+      try {
+        isScanningFrame = true;
+        if (!scanCanvasRef.current) {
+          scanCanvasRef.current = document.createElement('canvas');
+          scanCanvasRef.current.width = 640;
+          scanCanvasRef.current.height = 360;
+        }
+        const canvas = scanCanvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          isScanningFrame = false;
+          return;
+        }
+
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        canvas.toBlob(async (blob) => {
+          try {
+            if (blob) {
+              const liveDetections = await wildlifeDetectionService.detectFrame(blob, 0.25);
+              if (liveDetections && liveDetections.length > 0 && onLiveDetectionsFound) {
+                onLiveDetectionsFound(liveDetections);
+              }
+            }
+          } finally {
+            isScanningFrame = false;
+          }
+        }, 'image/jpeg', 0.65);
+      } catch {
+        isScanningFrame = false;
+      }
+    }, 1200); // Process frame every 1.2s to maintain fluid 60fps playback without lag
+
+    return () => clearInterval(scanInterval);
+  }, [showAiVision, onLiveDetectionsFound]);
 
   // Synchronize fullscreen state with document changes (e.g. user presses Esc)
   useEffect(() => {

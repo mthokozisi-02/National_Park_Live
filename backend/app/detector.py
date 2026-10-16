@@ -25,7 +25,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 MODEL_PATH = Path(
     os.getenv(
         "YOLO_MODEL_PATH",
-        str(MODEL_DIR / "best.pt")
+        str(MODEL_DIR / "best_finetuned.pt")
     )
 )
 

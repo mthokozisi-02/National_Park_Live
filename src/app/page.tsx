@@ -48,8 +48,8 @@ export default function SafariVisionApp() {
     const annotatedStream: SafariCameraStream = {
       id: `annotated-${Date.now()}`,
       name: title,
-      locationName: 'AI Annotated Output',
-      description: `Annotated output from YOLO wildlife detection`,
+      locationName: 'AI Safari Feed',
+      description: `Active Video: ${title}`,
       coordinates: [-18.6292, 26.9501],
       videoUrl,
       posterUrl: '',
@@ -59,6 +59,24 @@ export default function SafariVisionApp() {
       detectedWildlife: wildlifeDetections,
     };
     setCurrentStream(annotatedStream);
+  };
+
+  const handleLiveDetectionsFound = (liveDetections: WildlifeDetection[]) => {
+    setWildlifeDetections((prev) => {
+      const speciesMap = new Map<string, WildlifeDetection>();
+      liveDetections.forEach((d) => speciesMap.set(d.commonName, d));
+      prev.forEach((d) => {
+        if (!speciesMap.has(d.commonName)) {
+          speciesMap.set(d.commonName, d);
+        }
+      });
+      return Array.from(speciesMap.values());
+    });
+
+    setCurrentStream((prev) => ({
+      ...prev,
+      detectedWildlife: liveDetections,
+    }));
   };
 
   // Background Drone Flight Simulation
@@ -177,6 +195,7 @@ export default function SafariVisionApp() {
               telemetry={telemetry}
               onSelectStream={setCurrentStream}
               onSelectAnimal={setSelectedAnimal}
+              onLiveDetectionsFound={handleLiveDetectionsFound}
               showAiVision={showAiVision}
               setShowAiVision={setShowAiVision}
               showThermal={showThermal}

@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Optional, List
 import cv2
+import numpy as np
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -17,6 +18,7 @@ from app.detector import (
     OUTPUT_DIR,
     MODEL_NAME,
     model,
+    WILDLIFE_MAPPINGS,
 )
 from app.schemas import DetectionResponse, HealthResponse
 
@@ -203,6 +205,65 @@ def detect_video(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(fnf))
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/detect/frame")
+async def detect_frame(
+    file: UploadFile = File(...),
+    conf: float = Query(0.25, ge=0.05, le=0.95, description="Confidence threshold"),
+):
+    """
+    Real-time single frame wildlife detection.
+    Receives an image frame from the video player and returns detected bounding boxes instantly.
+    """
+    if model is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Wildlife detection model unavailable",
+        )
+
+    contents = await file.read()
+    nparr = np.frombuffer(contents, np.uint8)
+    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+    if frame is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid image frame data")
+
+    results = model.predict(source=frame, conf=conf, imgsz=640, verbose=False)[0]
+    detections = []
+    names = getattr(model, "names", {})
+
+    if results.boxes is not None and len(results.boxes) > 0:
+        for box in results.boxes:
+            class_id = int(box.cls[0].item())
+            confidence = float(box.conf[0].item())
+            class_name = names.get(class_id, "unknown")
+
+            if class_name not in WILDLIFE_MAPPINGS:
+                continue
+
+            mapping = WILDLIFE_MAPPINGS[class_name]
+            xywhn = box.xywhn[0].tolist()
+            center_x, center_y, bw, bh = xywhn
+
+            x = max(0.0, center_x - bw / 2.0)
+            y = max(0.0, center_y - bh / 2.0)
+
+            detections.append({
+                "id": str(uuid.uuid4())[:8],
+                "common_name": mapping["common_name"],
+                "species": mapping["scientific_name"],
+                "confidence": round(confidence, 3),
+                "box": {
+                    "x": round(min(1.0, max(0.0, x)), 4),
+                    "y": round(min(1.0, max(0.0, y)), 4),
+                    "width": round(min(1.0 - x, bw), 4),
+                    "height": round(min(1.0 - y, bh), 4),
+                },
+                "source": "model",
+            })
+
+    return {"detections": detections, "count": len(detections)}
 
 
 @app.get("/api/output/{filename}")
