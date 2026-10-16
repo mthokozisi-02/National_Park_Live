@@ -58,12 +58,19 @@ ALLOWED_EXTENSIONS = {".mp4", ".webm", ".mov"}
 @app.get("/api/health", response_model=HealthResponse)
 def health():
     device = getattr(model, "device", "cpu")
+    supported = []
+    if model is not None and hasattr(model, "names") and model.names:
+        supported = list(model.names.values())
+    else:
+        supported = list(WILDLIFE_MAPPINGS.values())
 
     return {
         "status": "ok",
         "service": "wildlife-detection",
         "model": MODEL_NAME,
         "device": str(device),
+        "model_loaded": model is not None,
+        "supported_classes": supported,
     }
 
 
@@ -169,44 +176,6 @@ async def upload_video(file: UploadFile = File(...)):
     }
 
 
-@app.post("/api/detect/{video_name}", response_model=DetectionResponse)
-def detect_video(
-    video_name: str,
-    conf: float = Query(0.25, ge=0.05, le=0.95, description="Confidence threshold"),
-    max_frames: Optional[int] = Query(None, description="Max frames to process, or None to scan the full video"),
-    frame_stride: int = Query(2, ge=1, le=30, description="Process every N-th frame for speed")
-):
-    """
-    Run YOLO wildlife detection on a safari video.
-    Returns detected species counts, normalized bounding box samples, and annotated video path.
-    """
-    # Prevent directory traversal attacks
-    if Path(video_name).name != video_name:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid video filename. Path traversal not permitted.",
-        )
-
-    if model is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Wildlife detection model unavailable: Not loaded",
-        )
-
-    try:
-        results = detect_animals(
-            video_name=video_name,
-            conf_threshold=conf,
-            max_frames=max_frames,
-            frame_stride=frame_stride
-        )
-        return results
-    except FileNotFoundError as fnf:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(fnf))
-    except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
-
-
 @app.post("/api/detect/frame")
 async def detect_frame(
     file: UploadFile = File(...),
@@ -264,6 +233,44 @@ async def detect_frame(
             })
 
     return {"detections": detections, "count": len(detections)}
+
+
+@app.post("/api/detect/{video_name}", response_model=DetectionResponse)
+def detect_video(
+    video_name: str,
+    conf: float = Query(0.25, ge=0.05, le=0.95, description="Confidence threshold"),
+    max_frames: Optional[int] = Query(None, description="Max frames to process, or None to scan the full video"),
+    frame_stride: int = Query(2, ge=1, le=30, description="Process every N-th frame for speed")
+):
+    """
+    Run YOLO wildlife detection on a safari video.
+    Returns detected species counts, normalized bounding box samples, and annotated video path.
+    """
+    # Prevent directory traversal attacks
+    if Path(video_name).name != video_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid video filename. Path traversal not permitted.",
+        )
+
+    if model is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Wildlife detection model unavailable: Not loaded",
+        )
+
+    try:
+        results = detect_animals(
+            video_name=video_name,
+            conf_threshold=conf,
+            max_frames=max_frames,
+            frame_stride=frame_stride
+        )
+        return results
+    except FileNotFoundError as fnf:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(fnf))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
 
 @app.get("/api/output/{filename}")
