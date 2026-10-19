@@ -65,6 +65,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
   const [simulatedPing, setSimulatedPing] = useState<number>(118);
   const [actualInferenceLatency, setActualInferenceLatency] = useState<number | null>(null);
   const [isDetectionStale, setIsDetectionStale] = useState<boolean>(false);
+  const [isInferenceUnavailable, setIsInferenceUnavailable] = useState<boolean>(false);
 
   // Exact visible video rectangle within object-contain viewport (pixels and percentages)
   const [videoBounds, setVideoBounds] = useState<{
@@ -265,6 +266,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
 
               setActualInferenceLatency(elapsedMs);
               setIsDetectionStale(stale);
+              setIsInferenceUnavailable(false);
 
               if (isMounted) {
                 // Always report detections to HUD; tag with stale status if latency or drift is high
@@ -275,13 +277,17 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
                 onLiveDetectionsFoundRef.current?.(processedDetections);
               }
             }
-          } catch {
-            // Keep going on network hiccup
+          } catch (err: any) {
+            if (err?.status === 503) {
+              setIsInferenceUnavailable(true);
+              setActualInferenceLatency(null);
+              onLiveDetectionsFoundRef.current?.([]);
+            }
           } finally {
             isScanning = false;
             if (isMounted) {
-              // Schedule next scan in 250ms for smooth real-time tracking
-              timerId = setTimeout(runFrameScan, 250);
+              // Schedule next scan (back off to 1000ms if 503 unavailable, 250ms when normal)
+              timerId = setTimeout(runFrameScan, isInferenceUnavailable ? 1000 : 250);
             }
           }
         }, 'image/jpeg', 0.80);
@@ -609,7 +615,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
     <div
       ref={containerRef}
       className={`relative w-full rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-xs flex flex-col p-1.5 ${
-        isFullscreen ? 'h-screen rounded-none border-none p-0' : 'aspect-[16/9] min-h-[460px]'
+        isFullscreen ? 'h-screen rounded-none border-none p-0' : 'aspect-[16/9] min-h-[500px] lg:min-h-[560px] xl:min-h-[620px]'
       }`}
     >
       {/* Video Stream or Fallback Engine */}
@@ -635,6 +641,14 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
             <span className="tracking-wide">RAW DRONE CAMERA FEED</span>
           </div>
         ) : null}
+
+        {/* 503 Model Unavailable Notification Banner */}
+        {isInferenceUnavailable && showAiVision && (
+          <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-rose-600/95 text-white backdrop-blur-md border border-rose-400 px-3.5 py-1.5 rounded-full text-xs font-mono shadow-lg font-bold">
+            <FontAwesomeIcon icon={faTriangleExclamation} className="w-3.5 h-3.5 text-white" />
+            <span>INFERENCE UNAVAILABLE (HTTP 503: MODEL OFFLINE)</span>
+          </div>
+        )}
 
         {!videoError ? (
           <video
@@ -689,6 +703,7 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
           videoBounds={videoBounds}
           inferenceLatencyMs={actualInferenceLatency ?? undefined}
           isStale={isDetectionStale}
+          isInferenceUnavailable={isInferenceUnavailable}
         />
 
         {/* Snapshot Notification Banner */}

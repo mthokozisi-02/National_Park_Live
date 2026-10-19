@@ -19,6 +19,7 @@ import {
   faVideo,
   faCrosshairs,
   faRoute,
+  faCloudArrowUp,
 } from '@fortawesome/free-solid-svg-icons';
 
 export interface WildlifePanelProps {
@@ -31,6 +32,8 @@ export interface WildlifePanelProps {
   backendHealth?: BackendHealth | null;
   isInferring?: boolean;
   onRunInference?: (videoName?: string) => Promise<void> | void;
+  inferenceResult?: ModelDetectionResponse | null;
+  inferenceError?: string | null;
 }
 
 const DEFAULT_VIDEOS = [
@@ -54,35 +57,63 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
   backendHealth: propBackendHealth,
   isInferring: propIsInferring,
   onRunInference: propOnRunInference,
+  inferenceResult: propInferenceResult,
+  inferenceError: propInferenceError,
 }) => {
   const [internalHealth, setInternalHealth] = useState<BackendHealth | null>(null);
   const backendHealth = propBackendHealth !== undefined ? propBackendHealth : internalHealth;
+  const isModelReady = Boolean(backendHealth && backendHealth.model_loaded);
   const [isCheckingBackend, setIsCheckingBackend] = useState<boolean>(!propBackendHealth);
   const [internalIsInferring, setInternalIsInferring] = useState<boolean>(false);
   const isInferring = propIsInferring !== undefined ? propIsInferring : internalIsInferring;
-  const [inferenceResult, setInferenceResult] = useState<ModelDetectionResponse | null>(null);
-  const [inferenceError, setInferenceError] = useState<string | null>(null);
+  const [internalInferenceResult, setInternalInferenceResult] = useState<ModelDetectionResponse | null>(null);
+  const [internalInferenceError, setInternalInferenceError] = useState<string | null>(null);
+  const inferenceResult = propInferenceResult !== undefined ? propInferenceResult : internalInferenceResult;
+  const inferenceError = propInferenceError !== undefined ? propInferenceError : internalInferenceError;
   const [availableVideos, setAvailableVideos] = useState<string[]>(DEFAULT_VIDEOS);
   const [outputVideos, setOutputVideos] = useState<string[]>([]);
   const [selectedVideo, setSelectedVideo] = useState<string>('final.mp4');
   const [scanMode, setScanMode] = useState<'full' | 'preview'>('full');
   const [lastOutputVideoUrl, setLastOutputVideoUrl] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'catalog' | 'model'>('catalog');
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadMessage, setUploadMessage] = useState<{ text: string; isError: boolean } | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  // Automatically switch tab and set last output video when external inference completes
+  useEffect(() => {
+    if (propInferenceResult) {
+      setActiveTab('model');
+      if (propInferenceResult.output_url) {
+        const outputFilename = propInferenceResult.output_url.split('/').pop() || '';
+        const outputUrl = wildlifeDetectionService.getOutputVideoUrl(outputFilename);
+        setLastOutputVideoUrl(outputUrl);
+      }
+      wildlifeDetectionService.listOutputVideos().then((outputs) => {
+        if (outputs && outputs.length > 0) setOutputVideos(outputs);
+      });
+    }
+  }, [propInferenceResult]);
 
   // Check FastAPI backend status and fetch available input & detected output videos
   const checkBackendStatus = async () => {
     setIsCheckingBackend(true);
-    if (!propBackendHealth) {
-      const health = await wildlifeDetectionService.checkHealth();
+    let health = propBackendHealth;
+    if (!health) {
+      health = await wildlifeDetectionService.checkHealth();
       setInternalHealth(health);
     }
     const videos = await wildlifeDetectionService.listVideos();
     const outputs = await wildlifeDetectionService.listOutputVideos();
-    if (videos && videos.length > 0) {
-      // Use backend API list as canonical source, fall back to DEFAULT_VIDEOS for offline mode
+    if (health) {
       setAvailableVideos(videos);
-      // Auto-select the first video if current selection isn't in the API list
-      setSelectedVideo((prev) => (videos.includes(prev) ? prev : videos[0]));
+      if (videos && videos.length > 0) {
+        setSelectedVideo((prev) => (videos.includes(prev) ? prev : videos[0]));
+      } else {
+        setSelectedVideo('');
+      }
+    } else {
+      setAvailableVideos(DEFAULT_VIDEOS);
     }
     if (outputs && outputs.length > 0) {
       setOutputVideos(outputs);
@@ -93,6 +124,29 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
   useEffect(() => {
     checkBackendStatus();
   }, [propBackendHealth]);
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setIsUploading(true);
+    setUploadMessage(null);
+    try {
+      const res = await wildlifeDetectionService.uploadVideo(file);
+      setUploadMessage({
+        text: `✓ Uploaded ${res.filename} (${(res.size_bytes / (1024 * 1024)).toFixed(1)} MB)`,
+        isError: false,
+      });
+      const updatedVideos = await wildlifeDetectionService.listVideos();
+      setAvailableVideos(updatedVideos);
+      setSelectedVideo(res.filename);
+      handlePlayRawOnMainScreen(res.filename);
+    } catch (err: any) {
+      setUploadMessage({ text: err.message || 'Upload failed', isError: true });
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const getStem = (name: string) => name.replace(/\.[^/.]+$/, '');
   const getDetectedFilename = (videoName: string) => `${getStem(videoName)}_detected.mp4`;
@@ -107,22 +161,26 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
   };
 
   const handlePlayRawOnMainScreen = (videoName: string) => {
+    if (!videoName) return;
     if (onPlayVideoOnMainScreen) {
-      onPlayVideoOnMainScreen(`/videos/${videoName}`, `${videoName} (Raw Drone Feed)`);
+      onPlayVideoOnMainScreen(wildlifeDetectionService.getRawVideoUrl(videoName), `${videoName} (Raw Drone Feed)`);
     }
   };
 
   // Trigger real YOLO detection via FastAPI
   const handleRunInference = async () => {
-    const targetVideo = selectedVideo || (availableVideos.length > 0 ? availableVideos[0] : 'final_test.mp4');
+    const targetVideo = selectedVideo || (availableVideos.length > 0 ? availableVideos[0] : '');
+    if (!targetVideo) return;
 
     if (propOnRunInference) {
       await propOnRunInference(targetVideo);
+      const updatedOutputs = await wildlifeDetectionService.listOutputVideos();
+      if (updatedOutputs && updatedOutputs.length > 0) setOutputVideos(updatedOutputs);
       return;
     }
 
     setInternalIsInferring(true);
-    setInferenceError(null);
+    setInternalInferenceError(null);
     setLastOutputVideoUrl(null);
 
     try {
@@ -131,7 +189,7 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
         ...(scanMode === 'preview' ? { maxFrames: 100 } : {}),
         frameStride: 1, // Full native framerate
       });
-      setInferenceResult(result);
+      setInternalInferenceResult(result);
       setActiveTab('model');
 
       // Build the output video URL and immediately play the clean detected video
@@ -152,21 +210,36 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
 
       // Convert sample detections to WildlifeDetection objects for the HUD & catalog
       if (result.sample_detections && result.sample_detections.length > 0) {
-        const individualDetections: WildlifeDetection[] = [];
+        const individualMap = new Map<string, (typeof result.sample_detections)[0]>();
+        result.sample_detections.forEach((det) => {
+          const groupKey =
+            det.track_id !== undefined && det.track_id !== null
+              ? `track-${det.common_name}-${det.track_id}`
+              : `det-${det.id}`;
+          const existing = individualMap.get(groupKey);
+          if (!existing || (det.confidence || 0) > (existing.confidence || 0)) {
+            individualMap.set(groupKey, det);
+          }
+        });
+
+        const representativeDetections = Array.from(individualMap.values());
         const speciesFrameCounts = result.species_frame_counts || result.species_counts || {};
         const speciesTrackedCounts = result.species_tracked_counts || {};
 
-        result.sample_detections.forEach((det, idx) => {
+        const individualDetections: WildlifeDetection[] = representativeDetections.map((det, idx) => {
+          const totalTrackedForSpecies =
+            speciesTrackedCounts[det.common_name] ||
+            (result.tracking_active ? 1 : speciesFrameCounts[det.common_name] || 1);
           const animal = wildlifeDetectionService.convertToWildlifeDetection(
             det,
-            speciesTrackedCounts[det.common_name] || speciesFrameCounts[det.common_name] || 1,
+            totalTrackedForSpecies,
             result.video,
             idx
           );
           if (det.track_id !== undefined && det.track_id !== null) {
             animal.id = `${det.common_name.toLowerCase().replace(/\s+/g, '-')}-track-${det.track_id}`;
           }
-          individualDetections.push(animal);
+          return animal;
         });
 
         if (onModelDetectionsLoaded) {
@@ -174,7 +247,7 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
         }
       }
     } catch (err: any) {
-      setInferenceError(err.message || 'Detection failed');
+      setInternalInferenceError(err.message || 'Detection failed');
     } finally {
       setInternalIsInferring(false);
     }
@@ -197,8 +270,13 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             YOLO ONLINE ({backendHealth.model} • {backendHealth.device ? backendHealth.device.toUpperCase() : 'CPU'})
           </span>
+        ) : backendHealth ? (
+          <span className="flex items-center gap-1.5 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded font-semibold">
+            <FontAwesomeIcon icon={faTriangleExclamation} className="w-2.5 h-2.5 text-amber-600" />
+            DEGRADED (MODEL MISSING)
+          </span>
         ) : (
-          <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded font-semibold">
+          <span className="text-[10px] bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded font-semibold">
             BACKEND OFFLINE
           </span>
         )}
@@ -220,40 +298,96 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
           Run the Ultralytics YOLOv8 neural network against aerial video footage to detect wildlife and track individuals.
         </p>
 
+        {backendHealth && !backendHealth.model_loaded && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-900 flex items-start gap-2 shadow-2xs">
+            <FontAwesomeIcon icon={faTriangleExclamation} className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
+            <div className="flex flex-col gap-0.5">
+              <span className="font-bold">Trained Model Checkpoint Not Found</span>
+              <span className="text-[11px] text-amber-800 font-sans leading-relaxed">
+                {backendHealth.error ||
+                  "The model checkpoint 'best_finetuned.pt' is missing from backend/models/. Video inference is unavailable until weights are provided."}
+              </span>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col gap-2.5 pt-1">
-          {/* Video Selection Dropdown */}
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] text-slate-600 font-bold uppercase tracking-wider flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-slate-700">
+          {/* Video Selection Dropdown & Upload */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-slate-700 font-bold text-[10px] uppercase tracking-wider">
                 <FontAwesomeIcon icon={faVideo} className="w-3 h-3 text-slate-500" /> SELECT VIDEO FOOTAGE:
               </span>
-              <span className="text-[9px] text-slate-500 font-mono">
-                {availableVideos.length} videos available
-              </span>
-            </label>
-            <select
-              value={selectedVideo}
-              onChange={(e) => {
-                const vid = e.target.value;
-                setSelectedVideo(vid);
-                if (isDetectedAvailable(vid)) {
-                  handlePlayAnnotatedOnMainScreen(vid);
-                } else {
-                  handlePlayRawOnMainScreen(vid);
-                }
-              }}
-              disabled={isInferring}
-              className="w-full bg-white border border-slate-300 hover:border-slate-400 text-slate-800 px-2.5 py-1.5 rounded text-xs font-mono focus:outline-none focus:border-emerald-600 cursor-pointer disabled:opacity-50 shadow-2xs"
-            >
-              {availableVideos.map((v) => {
-                const detected = isDetectedAvailable(v);
-                return (
-                  <option key={v} value={v}>
-                    {detected ? `${v} (✓ Detected Video Available)` : v}
-                  </option>
-                );
-              })}
-            </select>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading || isInferring}
+                className="text-[10px] bg-white hover:bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-300 font-semibold cursor-pointer flex items-center gap-1 shadow-2xs disabled:opacity-50"
+                title="Upload MP4 / WebM / MOV to backend"
+              >
+                <FontAwesomeIcon
+                  icon={isUploading ? faCircleNotch : faCloudArrowUp}
+                  className={`w-2.5 h-2.5 ${isUploading ? 'animate-spin text-emerald-600' : 'text-slate-500'}`}
+                />
+                <span>{isUploading ? 'Uploading...' : 'Upload Video'}</span>
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".mp4,.webm,.mov,video/mp4,video/webm,video/quicktime"
+                className="hidden"
+                onChange={handleFileUpload}
+              />
+            </div>
+
+            {uploadMessage && (
+              <div
+                className={`text-[10px] px-2 py-1 rounded border flex items-center justify-between ${
+                  uploadMessage.isError
+                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                }`}
+              >
+                <span>{uploadMessage.text}</span>
+                <button
+                  type="button"
+                  onClick={() => setUploadMessage(null)}
+                  className="ml-2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <FontAwesomeIcon icon={faXmark} className="w-2.5 h-2.5" />
+                </button>
+              </div>
+            )}
+
+            {availableVideos.length === 0 ? (
+              <div className="p-2.5 text-center text-xs text-slate-500 border border-dashed border-slate-300 rounded-lg bg-white">
+                No videos available in backend/videos. Click &quot;Upload Video&quot; above to add one.
+              </div>
+            ) : (
+              <select
+                value={selectedVideo}
+                onChange={(e) => {
+                  const vid = e.target.value;
+                  setSelectedVideo(vid);
+                  if (isDetectedAvailable(vid)) {
+                    handlePlayAnnotatedOnMainScreen(vid);
+                  } else {
+                    handlePlayRawOnMainScreen(vid);
+                  }
+                }}
+                disabled={isInferring}
+                className="w-full bg-white border border-slate-300 hover:border-slate-400 text-slate-800 px-2.5 py-1.5 rounded text-xs font-mono focus:outline-none focus:border-emerald-600 cursor-pointer disabled:opacity-50 shadow-2xs"
+              >
+                {availableVideos.map((v) => {
+                  const detected = isDetectedAvailable(v);
+                  return (
+                    <option key={v} value={v}>
+                      {detected ? `${v} (✓ Detected Video Available)` : v}
+                    </option>
+                  );
+                })}
+              </select>
+            )}
           </div>
 
           {/* Action Buttons: Clean Backend Video Playback */}
@@ -277,7 +411,8 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
                   </button>
                   <button
                     onClick={() => handleRunInference()}
-                    disabled={isInferring || !backendHealth}
+                    disabled={isInferring || !isModelReady || availableVideos.length === 0}
+                    title={!isModelReady ? "YOLO model checkpoint not loaded" : undefined}
                     className="flex-1 flex items-center justify-center gap-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-semibold py-1.5 px-2 rounded text-[11px] transition-all disabled:opacity-50 cursor-pointer shadow-2xs"
                   >
                     {isInferring ? (
@@ -298,7 +433,8 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
               <div className="flex flex-col gap-1.5">
                 <button
                   onClick={() => handleRunInference()}
-                  disabled={isInferring || !backendHealth}
+                  disabled={isInferring || !isModelReady || availableVideos.length === 0}
+                  title={!isModelReady ? "YOLO model checkpoint not loaded" : undefined}
                   className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-3 rounded-lg text-xs transition-all shadow-xs cursor-pointer disabled:opacity-50"
                 >
                   {isInferring ? (
@@ -315,7 +451,8 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
                 </button>
                 <button
                   onClick={() => handlePlayRawOnMainScreen(selectedVideo)}
-                  className="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-semibold py-1.5 px-3 rounded text-[11px] transition-all cursor-pointer shadow-2xs"
+                  disabled={!selectedVideo}
+                  className="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-semibold py-1.5 px-3 rounded text-[11px] transition-all cursor-pointer shadow-2xs disabled:opacity-50"
                 >
                   <FontAwesomeIcon icon={faVideo} className="w-3 h-3 text-slate-500" />
                   <span>Play Raw Video</span>
@@ -425,7 +562,8 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
             </p>
             <button
               onClick={() => handleRunInference()}
-              disabled={isInferring || !backendHealth}
+              disabled={isInferring || !isModelReady || availableVideos.length === 0}
+              title={!isModelReady ? "YOLO model checkpoint not loaded" : undefined}
               className="mt-1 flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-3 rounded-lg text-xs shadow-xs transition-all cursor-pointer disabled:opacity-50"
             >
               <FontAwesomeIcon icon={faMicrochip} className="w-3 h-3" />
@@ -433,9 +571,9 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
             </button>
           </div>
         ) : (
-          detections.map((animal) => (
+          detections.map((animal, idx) => (
             <div
-              key={animal.id}
+              key={`${animal.id || 'animal'}-${idx}`}
               onClick={() => onSelectAnimal(animal)}
               className="group bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 p-3 rounded-xl transition-all cursor-pointer flex items-center justify-between shadow-2xs"
             >
@@ -486,7 +624,7 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
 
       {/* Selected Wildlife Encyclopedia Modal */}
       {selectedAnimal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-fade-in">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-fade-in">
           <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl relative font-sans text-slate-800">
             {/* Modal Image Header */}
             <div className="relative h-48 w-full bg-slate-950">

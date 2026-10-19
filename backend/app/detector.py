@@ -59,13 +59,38 @@ def convert_to_web_h264(video_path: Path) -> Path:
         logger.warning(f"Could not convert video to H.264: {exc}")
     return video_path
 
+import threading
+
+_INFERENCE_LOCK = threading.Lock()
+
+def _reset_tracker_state():
+    """Explicitly reset internal Ultralytics ByteTrack state for cross-video isolation."""
+    global model
+    if model is not None and hasattr(model, "predictor") and model.predictor is not None:
+        try:
+            if hasattr(model.predictor, "trackers"):
+                model.predictor.trackers = []
+        except Exception as e:
+            logger.debug(f"Tracker reset notice: {e}")
+
 # Use the trained model by default.
 # Either MODEL_PATH or YOLO_MODEL_PATH environment variable can override this path when deploying outside development.
 env_model_path = os.getenv("MODEL_PATH") or os.getenv("YOLO_MODEL_PATH")
-MODEL_PATH = Path(env_model_path) if env_model_path else (MODEL_DIR / "best_finetuned.pt")
-
-if not MODEL_PATH.is_absolute():
-    MODEL_PATH = (Path.cwd() / MODEL_PATH).resolve()
+if env_model_path:
+    cand = Path(env_model_path)
+    if not cand.is_absolute():
+        cand_cwd = (Path.cwd() / cand).resolve()
+        cand_base = (BASE_DIR / cand).resolve()
+        if cand_cwd.is_file():
+            MODEL_PATH = cand_cwd
+        elif cand_base.is_file():
+            MODEL_PATH = cand_base
+        else:
+            MODEL_PATH = cand_cwd
+    else:
+        MODEL_PATH = cand.resolve()
+else:
+    MODEL_PATH = (MODEL_DIR / "best_finetuned.pt").resolve()
 
 
 # ============================================================
@@ -271,54 +296,140 @@ def detect_animals(
     # Process video
     # --------------------------------------------------------
 
-    try:
-        while True:
-            success, frame = capture.read()
+    with _INFERENCE_LOCK:
+        _reset_tracker_state()
+        try:
+            while True:
+                success, frame = capture.read()
 
-            if not success:
-                break
+                if not success:
+                    break
 
-            current_frame = frame_index
-            frame_index += 1
+                current_frame = frame_index
+                frame_index += 1
 
-            # Process every Nth frame.
-            if current_frame % frame_stride != 0:
-                continue
+                # Process every Nth frame.
+                if current_frame % frame_stride != 0:
+                    continue
 
-            # Run the custom-trained model with ByteTrack object tracking
-            t0 = time.perf_counter()
-            try:
-                results = model.track(
-                    source=frame,
-                    conf=conf_threshold,
-                    imgsz=640,
-                    persist=True,
-                    tracker="bytetrack.yaml",
-                    verbose=False,
-                )[0]
-            except Exception:
-                results = model.predict(
-                    source=frame,
-                    conf=conf_threshold,
-                    imgsz=640,
-                    verbose=False,
-                )[0]
-            total_inference_time += (time.perf_counter() - t0)
+                # Run the custom-trained model with ByteTrack object tracking
+                t0 = time.perf_counter()
+                try:
+                    results = model.track(
+                        source=frame,
+                        conf=conf_threshold,
+                        imgsz=640,
+                        persist=True,
+                        tracker="bytetrack.yaml",
+                        verbose=False,
+                    )[0]
+                except Exception:
+                    results = model.predict(
+                        source=frame,
+                        conf=conf_threshold,
+                        imgsz=640,
+                        verbose=False,
+                    )[0]
+                total_inference_time += (time.perf_counter() - t0)
 
-            # Draw bounding boxes and class labels.
-            annotated_frame = results.plot()
+                # Draw bounding boxes and class labels.
+                annotated_frame = results.plot()
 
-            writer.write(annotated_frame)
+                writer.write(annotated_frame)
 
-            frames_processed += 1
+                frames_processed += 1
 
-            timestamp_sec = current_frame / fps
+                timestamp_sec = current_frame / fps
 
-            # ------------------------------------------------
-            # Extract detections
-            # ------------------------------------------------
+                # ------------------------------------------------
+                # Extract detections
+                # ------------------------------------------------
 
-            if results.boxes is None or len(results.boxes) == 0:
+                if results.boxes is None or len(results.boxes) == 0:
+                    if (
+                        max_frames is not None
+                        and max_frames > 0
+                        and frames_processed >= max_frames
+                    ):
+                        break
+
+                    continue
+
+                for box in results.boxes:
+                    class_id = int(box.cls[0].item())
+                    confidence = float(box.conf[0].item())
+
+                    class_name = MODEL_CLASS_NAMES.get(
+                        class_id,
+                        "unknown",
+                    )
+
+                    # Ignore unexpected classes.
+                    if class_name not in WILDLIFE_MAPPINGS:
+                        continue
+
+                    mapping = WILDLIFE_MAPPINGS[class_name]
+
+                    common_name = mapping["common_name"]
+                    scientific_name = mapping["scientific_name"]
+
+                    total_detections += 1
+
+                    # Track unique animal individuals across frames via ByteTrack ID
+                    track_id = (
+                        int(box.id[0].item())
+                        if (box.id is not None and len(box.id) > 0)
+                        else None
+                    )
+                    if track_id is not None:
+                        unique_track_ids.add(track_id)
+                        if common_name not in species_unique_ids:
+                            species_unique_ids[common_name] = set()
+                        species_unique_ids[common_name].add(track_id)
+
+                    species_counts[common_name] = (
+                        species_counts.get(common_name, 0) + 1
+                    )
+
+                    # YOLO returns normalized center coordinates:
+                    # [center_x, center_y, box_width, box_height].
+                    xywhn = box.xywhn[0].tolist()
+
+                    center_x = float(xywhn[0])
+                    center_y = float(xywhn[1])
+                    box_width = float(xywhn[2])
+                    box_height = float(xywhn[3])
+
+                    # Convert center coordinates to top-left coordinates.
+                    x = max(0.0, center_x - box_width / 2.0)
+                    y = max(0.0, center_y - box_height / 2.0)
+
+                    # Clip the box to the normalized frame boundaries.
+                    x = min(1.0, x)
+                    y = min(1.0, y)
+
+                    box_width = min(box_width, 1.0 - x)
+                    box_height = min(box_height, 1.0 - y)
+
+                    # Retain detections across frames for complete timeline tracking
+                    if len(sample_detections) < 1000:
+                        sample_detections.append({
+                            "id": str(uuid.uuid4())[:8],
+                            "track_id": track_id,
+                            "frame": current_frame,
+                            "timestamp_sec": round(timestamp_sec, 2),
+                            "species": scientific_name,
+                            "common_name": common_name,
+                            "confidence": round(confidence, 3),
+                            "box": {
+                                "x": round(x, 4),
+                                "y": round(y, 4),
+                                "width": round(box_width, 4),
+                                "height": round(box_height, 4),
+                            },
+                            "source": "model",
+                        })
+
                 if (
                     max_frames is not None
                     and max_frames > 0
@@ -326,93 +437,10 @@ def detect_animals(
                 ):
                     break
 
-                continue
-
-            for box in results.boxes:
-                class_id = int(box.cls[0].item())
-                confidence = float(box.conf[0].item())
-
-                class_name = MODEL_CLASS_NAMES.get(
-                    class_id,
-                    "unknown",
-                )
-
-                # Ignore unexpected classes.
-                if class_name not in WILDLIFE_MAPPINGS:
-                    continue
-
-                mapping = WILDLIFE_MAPPINGS[class_name]
-
-                common_name = mapping["common_name"]
-                scientific_name = mapping["scientific_name"]
-
-                total_detections += 1
-
-                # Track unique animal individuals across frames via ByteTrack ID
-                track_id = (
-                    int(box.id[0].item())
-                    if (box.id is not None and len(box.id) > 0)
-                    else None
-                )
-                if track_id is not None:
-                    unique_track_ids.add(track_id)
-                    if common_name not in species_unique_ids:
-                        species_unique_ids[common_name] = set()
-                    species_unique_ids[common_name].add(track_id)
-
-                species_counts[common_name] = (
-                    species_counts.get(common_name, 0) + 1
-                )
-
-                # YOLO returns normalized center coordinates:
-                # [center_x, center_y, box_width, box_height].
-                xywhn = box.xywhn[0].tolist()
-
-                center_x = float(xywhn[0])
-                center_y = float(xywhn[1])
-                box_width = float(xywhn[2])
-                box_height = float(xywhn[3])
-
-                # Convert center coordinates to top-left coordinates.
-                x = max(0.0, center_x - box_width / 2.0)
-                y = max(0.0, center_y - box_height / 2.0)
-
-                # Clip the box to the normalized frame boundaries.
-                x = min(1.0, x)
-                y = min(1.0, y)
-
-                box_width = min(box_width, 1.0 - x)
-                box_height = min(box_height, 1.0 - y)
-
-                # Retain detections across frames for complete timeline tracking
-                if len(sample_detections) < 1000:
-                    sample_detections.append({
-                        "id": str(uuid.uuid4())[:8],
-                        "track_id": track_id,
-                        "frame": current_frame,
-                        "timestamp_sec": round(timestamp_sec, 2),
-                        "species": scientific_name,
-                        "common_name": common_name,
-                        "confidence": round(confidence, 3),
-                        "box": {
-                            "x": round(x, 4),
-                            "y": round(y, 4),
-                            "width": round(box_width, 4),
-                            "height": round(box_height, 4),
-                        },
-                        "source": "model",
-                    })
-
-            if (
-                max_frames is not None
-                and max_frames > 0
-                and frames_processed >= max_frames
-            ):
-                break
-
-    finally:
-        capture.release()
-        writer.release()
+        finally:
+            _reset_tracker_state()
+            capture.release()
+            writer.release()
 
     # Ensure output video is universally playable in all web browsers (H.264)
     output_path = convert_to_web_h264(output_path)

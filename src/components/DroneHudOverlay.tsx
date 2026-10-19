@@ -33,6 +33,7 @@ interface DroneHudOverlayProps {
   videoBounds?: VideoBounds;
   inferenceLatencyMs?: number;
   isStale?: boolean;
+  isInferenceUnavailable?: boolean;
 }
 
 export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
@@ -44,6 +45,7 @@ export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
   videoBounds,
   inferenceLatencyMs,
   isStale,
+  isInferenceUnavailable,
 }) => {
   // Compass heading tape ticks
   const compassTicks = [-40, -30, -20, -10, 0, 10, 20, 30, 40];
@@ -71,7 +73,12 @@ export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
             <span className="text-emerald-700 font-semibold">{telemetry.flightMode}</span>
           </div>
 
-          {inferenceLatencyMs !== undefined && (
+          {isInferenceUnavailable ? (
+            <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-300 text-rose-800 px-2.5 py-1.5 rounded-lg text-xs font-mono shadow-md font-bold">
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+              <span>INFERENCE UNAVAILABLE (503)</span>
+            </div>
+          ) : inferenceLatencyMs !== undefined ? (
             <div className="hidden sm:flex items-center gap-1.5 bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-mono text-slate-800 shadow-md">
               <span
                 className={`w-2 h-2 rounded-full ${
@@ -86,7 +93,7 @@ export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
               <span className="text-emerald-700 font-bold">{inferenceLatencyMs}ms</span>
               {isStale && <span className="text-amber-700 font-bold text-[10px] ml-1">[SYNC LAG]</span>}
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Heading Compass Tape Center */}
@@ -221,80 +228,122 @@ export const DroneHudOverlay: React.FC<DroneHudOverlayProps> = ({
       </div>
 
       {/* Wildlife Vision Overlays (Bounding Boxes) aligned to actual video area */}
-      {showAiVision && (
-        <div
-          className="absolute pointer-events-none"
-          style={{
-            left: videoBounds?.left !== undefined ? `${videoBounds.left}px` : `${videoBounds?.leftPercent ?? 0}%`,
-            top: videoBounds?.top !== undefined ? `${videoBounds.top}px` : `${videoBounds?.topPercent ?? 0}%`,
-            width: videoBounds?.width !== undefined ? `${videoBounds.width}px` : `${videoBounds?.widthPercent ?? 100}%`,
-            height: videoBounds?.height !== undefined ? `${videoBounds.height}px` : `${videoBounds?.heightPercent ?? 100}%`,
-          }}
-        >
-          {wildlifeDetections.map((detection) => {
-            const rawLeft = detection.box.x <= 1 ? detection.box.x * 100 : detection.box.x;
-            const rawTop = detection.box.y <= 1 ? detection.box.y * 100 : detection.box.y;
-            const rawWidth = detection.box.width <= 1 ? detection.box.width * 100 : detection.box.width;
-            const rawHeight = detection.box.height <= 1 ? detection.box.height * 100 : detection.box.height;
+      {showAiVision && (() => {
+        // Calculate species counts and find the single highest-confidence representative
+        // animal per species so herds (e.g. multiple elephants) display 1 clean label
+        // rather than cluttering the screen with overlapping badges.
+        const speciesTotalCounts = new Map<string, number>();
+        const primarySpeciesDetectionId = new Map<string, string>();
+        const speciesMaxConfidence = new Map<string, number>();
 
-            const leftPct = Math.min(100, Math.max(0, rawLeft));
-            const topPct = Math.min(100, Math.max(0, rawTop));
-            const widthPct = Math.min(100 - leftPct, Math.max(0, rawWidth));
-            const heightPct = Math.min(100 - topPct, Math.max(0, rawHeight));
-            const itemStale = detection.isStale || isStale;
+        wildlifeDetections.forEach((d, i) => {
+          const spKey = d.commonName.toLowerCase().trim();
+          speciesTotalCounts.set(spKey, (speciesTotalCounts.get(spKey) || 0) + 1);
 
-            return (
-              <div
-                key={detection.id}
-                style={{
-                  left: `${leftPct}%`,
-                  top: `${topPct}%`,
-                  width: `${widthPct}%`,
-                  height: `${heightPct}%`,
-                }}
-                className={`absolute border-2 rounded-lg transition-all duration-300 pointer-events-auto cursor-pointer group shadow-md ${
-                  itemStale
-                    ? 'border-amber-400 bg-amber-400/10 hover:border-amber-500 hover:bg-amber-400/20'
-                    : 'border-emerald-500 bg-emerald-500/10 hover:border-emerald-600 hover:bg-emerald-500/20'
-                }`}
-                onClick={() => onSelectAnimal(detection)}
-              >
-                {/* Corner Brackets */}
-                <div className={`absolute -top-1 -left-1 w-2.5 h-2.5 border-t-2 border-l-2 ${itemStale ? 'border-amber-500' : 'border-emerald-600'}`} />
-                <div className={`absolute -top-1 -right-1 w-2.5 h-2.5 border-t-2 border-r-2 ${itemStale ? 'border-amber-500' : 'border-emerald-600'}`} />
-                <div className={`absolute -bottom-1 -left-1 w-2.5 h-2.5 border-b-2 border-l-2 ${itemStale ? 'border-amber-500' : 'border-emerald-600'}`} />
-                <div className={`absolute -bottom-1 -right-1 w-2.5 h-2.5 border-b-2 border-r-2 ${itemStale ? 'border-amber-500' : 'border-emerald-600'}`} />
+          const currentConf = d.confidence || 0;
+          const prevMax = speciesMaxConfidence.get(spKey) ?? -1;
+          const currentId = d.id || `det-${i}`;
 
-                {/* Floating Detection Tag */}
-                <div className="absolute -top-8 left-0 flex items-center gap-1.5 bg-white/95 backdrop-blur-md px-2.5 py-1 rounded-md border border-slate-300 text-xs font-mono whitespace-nowrap text-slate-900 group-hover:border-emerald-600 transition-colors shadow-lg">
-                  <FontAwesomeIcon icon={faPaw} className={`w-3 h-3 ${itemStale ? 'text-amber-600' : 'text-emerald-600'}`} />
-                  <span className="font-black tracking-wide">{detection.commonName.toUpperCase()}</span>
-                  {detection.trackId !== undefined && detection.trackId !== null && (
-                    <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-1 py-0.5 rounded font-bold">
-                      Track #{detection.trackId}
+          if (currentConf > prevMax) {
+            speciesMaxConfidence.set(spKey, currentConf);
+            primarySpeciesDetectionId.set(spKey, currentId);
+          }
+        });
+
+        return (
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              left: videoBounds?.left !== undefined ? `${videoBounds.left}px` : `${videoBounds?.leftPercent ?? 0}%`,
+              top: videoBounds?.top !== undefined ? `${videoBounds.top}px` : `${videoBounds?.topPercent ?? 0}%`,
+              width: videoBounds?.width !== undefined ? `${videoBounds.width}px` : `${videoBounds?.widthPercent ?? 100}%`,
+              height: videoBounds?.height !== undefined ? `${videoBounds.height}px` : `${videoBounds?.heightPercent ?? 100}%`,
+            }}
+          >
+            {wildlifeDetections.map((detection, idx) => {
+              const spKey = detection.commonName.toLowerCase().trim();
+              const detectionId = detection.id || `det-${idx}`;
+              const isPrimaryForSpecies = primarySpeciesDetectionId.get(spKey) === detectionId;
+
+              // Display the targeting bounding box and label ONLY on that one representative animal per species
+              if (!isPrimaryForSpecies) {
+                return null;
+              }
+
+              const speciesHerdCount = speciesTotalCounts.get(spKey) || 1;
+
+              const rawLeft = detection.box.x <= 1 ? detection.box.x * 100 : detection.box.x;
+              const rawTop = detection.box.y <= 1 ? detection.box.y * 100 : detection.box.y;
+              const rawWidth = detection.box.width <= 1 ? detection.box.width * 100 : detection.box.width;
+              const rawHeight = detection.box.height <= 1 ? detection.box.height * 100 : detection.box.height;
+
+              const leftPct = Math.min(100, Math.max(0, rawLeft));
+              const topPct = Math.min(100, Math.max(0, rawTop));
+              const widthPct = Math.min(100 - leftPct, Math.max(0, rawWidth));
+              const heightPct = Math.min(100 - topPct, Math.max(0, rawHeight));
+              const itemStale = detection.isStale || isStale;
+              const isNearTop = topPct < 8;
+
+              return (
+                <div
+                  key={`${detection.id || 'box'}-${idx}`}
+                  style={{
+                    left: `${leftPct}%`,
+                    top: `${topPct}%`,
+                    width: `${widthPct}%`,
+                    height: `${heightPct}%`,
+                  }}
+                  className={`absolute border-2 rounded-lg transition-all duration-300 pointer-events-auto cursor-pointer group shadow-md ${
+                    itemStale
+                      ? 'border-amber-400 bg-amber-400/10 hover:border-amber-500 hover:bg-amber-400/20'
+                      : 'border-emerald-500 bg-emerald-500/10 hover:border-emerald-600 hover:bg-emerald-500/20'
+                  }`}
+                  onClick={() => onSelectAnimal(detection)}
+                >
+                  {/* Corner Brackets */}
+                  <div className={`absolute -top-1 -left-1 w-2.5 h-2.5 border-t-2 border-l-2 ${itemStale ? 'border-amber-500' : 'border-emerald-600'}`} />
+                  <div className={`absolute -top-1 -right-1 w-2.5 h-2.5 border-t-2 border-r-2 ${itemStale ? 'border-amber-500' : 'border-emerald-600'}`} />
+                  <div className={`absolute -bottom-1 -left-1 w-2.5 h-2.5 border-b-2 border-l-2 ${itemStale ? 'border-amber-500' : 'border-emerald-600'}`} />
+                  <div className={`absolute -bottom-1 -right-1 w-2.5 h-2.5 border-b-2 border-r-2 ${itemStale ? 'border-amber-500' : 'border-emerald-600'}`} />
+
+                  {/* Floating Detection Tag on the representative animal */}
+                  <div
+                    className={`absolute ${isNearTop ? 'top-1' : '-top-8'} left-0 flex items-center gap-1.5 bg-white/95 backdrop-blur-md px-2.5 py-1 rounded-md border border-slate-300 text-xs font-mono whitespace-nowrap text-slate-900 group-hover:border-emerald-600 transition-all shadow-lg z-20`}
+                  >
+                    <FontAwesomeIcon icon={faPaw} className={`w-3 h-3 ${itemStale ? 'text-amber-600' : 'text-emerald-600'}`} />
+                    <span className="font-black tracking-wide">{detection.commonName.toUpperCase()}</span>
+                    {speciesHerdCount > 1 && (
+                      <span className="text-[10px] bg-slate-900 text-white px-1.5 py-0.5 rounded font-black tracking-wider">
+                        x{speciesHerdCount}
+                      </span>
+                    )}
+                    {detection.trackId !== undefined && detection.trackId !== null && (
+                      <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-1 py-0.5 rounded font-bold">
+                        Track #{detection.trackId}
+                      </span>
+                    )}
+                    <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1 py-0.5 rounded font-bold">
+                      {(detection.confidence * 100).toFixed(0)}%
                     </span>
-                  )}
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1 py-0.5 rounded font-bold">
-                    {(detection.confidence * 100).toFixed(0)}%
-                  </span>
-                  {itemStale && (
-                    <span className="text-[9px] bg-amber-100 text-amber-800 border border-amber-300 px-1 py-0.5 rounded font-bold">
-                      LAGGED
-                    </span>
-                  )}
-                  <span className="text-slate-500 text-[10px]">({detection.distanceFromDroneM}m)</span>
-                </div>
+                    {itemStale && (
+                      <span className="text-[9px] bg-amber-100 text-amber-800 border border-amber-300 px-1 py-0.5 rounded font-bold">
+                        LAGGED
+                      </span>
+                    )}
+                    <span className="text-slate-500 text-[10px]">({detection.distanceFromDroneM}m)</span>
+                  </div>
 
-                {/* Bottom quick inspect trigger */}
-                <div className="absolute -bottom-5 right-0 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[9px] font-bold px-1.5 py-0.5 rounded font-mono flex items-center gap-1 shadow-xs">
-                  <FontAwesomeIcon icon={faEye} className="w-2.5 h-2.5" />
-                  INSPECT BIO
+                  {/* Bottom quick inspect trigger */}
+                  <div className="absolute -bottom-5 right-0 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[9px] font-bold px-1.5 py-0.5 rounded font-mono flex items-center gap-1 shadow-xs z-20">
+                    <FontAwesomeIcon icon={faEye} className="w-2.5 h-2.5" />
+                    INSPECT BIO
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Bottom Bar: GPS Coordinates, RTH distance, and Environmental Telemetry */}
       <div className="absolute bottom-4 left-6 right-6 flex items-center justify-between text-xs font-mono text-slate-800">

@@ -200,7 +200,18 @@ class TestSafariVisionEndToEnd(unittest.TestCase):
         s_video2 = [s for s in all_sightings if s.get("source_video") == "test.mp4"]
         print(f"Database observations recorded: final_test.mp4={len(s_video1)}, test.mp4={len(s_video2)}")
 
-        print("✓ Test D Passed: Video switching produces isolated output videos, detections, and database records.")
+        # Test Idempotency: Rescan video 1 and verify database count for video 1 does not explode with duplicate rows
+        count_before = len(s_video1)
+        res1_rescan = client.post("/api/detect/final_test.mp4?max_frames=10&frame_stride=3")
+        self.assertEqual(res1_rescan.status_code, 200)
+
+        sightings_res_after = client.get("/api/sightings")
+        all_sightings_after = sightings_res_after.json()
+        s_video1_after = [s for s in all_sightings_after if s.get("source_video") == "final_test.mp4"]
+        print(f"Database observations for final_test.mp4 after rescan: {len(s_video1_after)} (initial: {count_before})")
+        self.assertEqual(len(s_video1_after), count_before, "Re-scanning video must be idempotent and not duplicate sighting records")
+
+        print("✓ Test D Passed: Video switching produces isolated output videos, detections, and idempotent database records.")
 
 
 if __name__ == "__main__":

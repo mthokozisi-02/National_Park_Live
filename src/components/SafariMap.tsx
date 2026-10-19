@@ -458,7 +458,7 @@ export const SafariMap: React.FC<SafariMapProps> = ({
   };
 
   return (
-    <div className="relative w-full h-[400px] rounded-xl overflow-hidden border border-slate-200 bg-white shadow-xs flex flex-col font-sans">
+    <div className="relative w-full h-[400px] rounded-xl overflow-hidden border border-slate-200 bg-white shadow-xs flex flex-col font-sans isolate z-0">
       {/* Top Header Controls Overlay */}
       <div className="absolute top-2.5 left-2.5 right-2.5 z-10 flex flex-col gap-2 pointer-events-none">
         {/* Active Destination Navigation Banner */}

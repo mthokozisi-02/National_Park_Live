@@ -119,12 +119,22 @@ export const wildlifeDetectionService = {
         body: formData,
       });
 
-      if (!res.ok) return [];
+      if (!res.ok) {
+        if (res.status === 503) {
+          const errJson = await res.json().catch(() => ({ detail: 'Model checkpoint unavailable' }));
+          const error: any = new Error(errJson.detail || 'Inference service unavailable');
+          error.status = 503;
+          throw error;
+        }
+        return [];
+      }
+
       const data = await res.json();
       return (data.detections || []).map((det: any, idx: number) =>
         wildlifeDetectionService.convertToWildlifeDetection(det, 1, 'Live Stream', idx)
       );
-    } catch {
+    } catch (err: any) {
+      if (err?.status === 503) throw err;
       return [];
     }
   },

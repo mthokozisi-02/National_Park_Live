@@ -250,13 +250,13 @@ export const SafariDecisionSupport: React.FC<SafariDecisionSupportProps> = ({
             )}
           </div>
         ) : (
-          recommendations.map((rec) => {
+          recommendations.map((rec, idx) => {
             const isSelected = activeDestinationId === rec.sighting.id;
             const speciesIcon = getSpeciesIcon(rec.sighting.common_name);
 
             return (
               <div
-                key={rec.sighting.id}
+                key={`${rec.sighting.id || 'rec'}-${idx}`}
                 className={`flex flex-col gap-2 p-3 rounded-xl border transition-all ${
                   isSelected
                     ? 'bg-emerald-50/60 border-emerald-500 shadow-xs ring-1 ring-emerald-500/30'

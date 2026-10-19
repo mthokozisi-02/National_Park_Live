@@ -59,6 +59,7 @@ const FALLBACK_SUMMARY: AnalyticsSummary = {
     },
   ],
   highest_density_sector: 'Central Vlei & Pan Sector',
+  is_simulated: true,
 };
 
 export const analyticsService = {
@@ -71,7 +72,8 @@ export const analyticsService = {
         headers: { Accept: 'application/json' },
       });
       if (!resp.ok) throw new Error('API Error');
-      return await resp.json();
+      const data = await resp.json();
+      return { ...data, is_simulated: false };
     } catch {
       return FALLBACK_SUMMARY;
     }
@@ -87,10 +89,12 @@ export const analyticsService = {
         headers: { Accept: 'application/json' },
       });
       if (!resp.ok) throw new Error('API Error');
-      return await resp.json();
+      const data = await resp.json();
+      return { ...data, is_simulated: false };
     } catch {
       const h = hour !== undefined ? hour : new Date().getHours();
       return {
+        is_simulated: true,
         evaluation_hour: h,
         time_window: `${h.toString().padStart(2, '0')}:00 - ${((h + 1) % 24).toString().padStart(2, '0')}:00`,
         recommendation_summary: `At ${h}:00, highest predicted likelihood is African Elephant (89% at Nyamandhlovu Pan).`,
@@ -145,11 +149,13 @@ export const analyticsService = {
         headers: { Accept: 'application/json' },
       });
       if (!resp.ok) throw new Error('API Error');
-      return await resp.json();
+      const data = await resp.json();
+      return { ...data, is_simulated: false };
     } catch {
       const summary = await this.getSummary();
       const predictions = await this.getPredictiveOccurrence();
       return {
+        is_simulated: true,
         title: `Hwange National Park Wildlife Intelligence ${period === 'daily' ? 'Daily Briefing' : 'Weekly Summary'}`,
         generated_at: new Date().toISOString(),
         period,

@@ -68,7 +68,7 @@ export const WildlifeAnalyticsModal: React.FC<WildlifeAnalyticsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs font-mono">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs font-mono">
       <div className="relative w-full max-w-4xl max-h-[90vh] bg-white border border-slate-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-slate-800">
         {/* Modal Top Bar */}
         <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-white">
@@ -79,9 +79,15 @@ export const WildlifeAnalyticsModal: React.FC<WildlifeAnalyticsModalProps> = ({
             <div>
               <h2 className="text-sm font-bold text-slate-900 tracking-wider flex items-center gap-2">
                 <span>WILDLIFE INTELLIGENCE & ANALYTICS</span>
-                <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200 font-semibold">
-                  PHASE 4
-                </span>
+                {summary?.is_simulated ? (
+                  <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded border border-amber-200 font-semibold">
+                    SIMULATED DATA (Backend Offline)
+                  </span>
+                ) : (
+                  <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200 font-semibold">
+                    LIVE HWANGE CENSUS
+                  </span>
+                )}
               </h2>
               <p className="text-[11px] text-slate-500 font-sans">
                 Accumulated observations, spatial census correction, and predictive occurrence models.
@@ -404,7 +410,7 @@ export const WildlifeAnalyticsModal: React.FC<WildlifeAnalyticsModalProps> = ({
         {/* Modal Bottom Action Bar */}
         <div className="p-3 bg-white border-t border-slate-200 flex items-center justify-between text-xs">
           <span className="text-[10px] text-slate-500 font-sans">
-            SafariVision Wildlife Decision System • Phase 4 Operational Dashboard
+            SafariVision Wildlife Decision System • Hwange Ecological Dashboard
           </span>
           <button
             onClick={onClose}

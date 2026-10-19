@@ -128,6 +128,7 @@ def init_sightings_db():
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sightings_time ON sightings(timestamp);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sightings_species ON sightings(common_name);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sightings_source_video ON sightings(source_video);")
 
         # Check if already seeded
         cursor.execute("SELECT COUNT(*) FROM sightings;")
@@ -285,37 +286,78 @@ def _seed_historical_sightings(cursor: sqlite3.Cursor):
 
 
 def record_sighting(sighting: Dict[str, Any]) -> Dict[str, Any]:
-    """Insert a new sighting record into SQLite."""
+    """Insert or update sighting record in SQLite for idempotency across video scans."""
     record_id = sighting.get("id") or str(uuid.uuid4())[:8]
     now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
     ts = sighting.get("timestamp") or now_iso
+    track_id = sighting.get("track_id")
+    source_video = sighting.get("source_video") or "drone_stream"
 
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO sightings (
-                id, species, common_name, confidence, count,
-                latitude, longitude, altitude_m, timestamp,
-                source_video, source_frame, track_id, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            record_id,
-            sighting["species"],
-            sighting["common_name"],
-            float(sighting.get("confidence", 0.9)),
-            int(sighting.get("count", 1)),
-            float(sighting["latitude"]),
-            float(sighting["longitude"]),
-            float(sighting.get("altitude_m", 1000.0)),
-            ts,
-            sighting.get("source_video", "drone_stream"),
-            sighting.get("source_frame", 0),
-            sighting.get("track_id"),
-            sighting.get("notes", "YOLO Automated Field Sighting"),
-        ))
+        existing_id = None
+        if track_id is not None and source_video:
+            cursor.execute(
+                "SELECT id FROM sightings WHERE source_video = ? AND track_id = ? LIMIT 1",
+                (source_video, track_id),
+            )
+            row = cursor.fetchone()
+            if row:
+                existing_id = row[0]
+
+        if existing_id:
+            record_id = existing_id
+            cursor.execute("""
+                UPDATE sightings SET
+                    species = ?,
+                    common_name = ?,
+                    confidence = ?,
+                    count = ?,
+                    latitude = ?,
+                    longitude = ?,
+                    altitude_m = ?,
+                    timestamp = ?,
+                    source_frame = ?,
+                    notes = ?
+                WHERE id = ?
+            """, (
+                sighting["species"],
+                sighting["common_name"],
+                float(sighting.get("confidence", 0.9)),
+                int(sighting.get("count", 1)),
+                float(sighting["latitude"]),
+                float(sighting["longitude"]),
+                float(sighting.get("altitude_m", 1000.0)),
+                ts,
+                sighting.get("source_frame", 0),
+                sighting.get("notes", "YOLO Automated Field Sighting"),
+                record_id,
+            ))
+        else:
+            cursor.execute("""
+                INSERT INTO sightings (
+                    id, species, common_name, confidence, count,
+                    latitude, longitude, altitude_m, timestamp,
+                    source_video, source_frame, track_id, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                record_id,
+                sighting["species"],
+                sighting["common_name"],
+                float(sighting.get("confidence", 0.9)),
+                int(sighting.get("count", 1)),
+                float(sighting["latitude"]),
+                float(sighting["longitude"]),
+                float(sighting.get("altitude_m", 1000.0)),
+                ts,
+                source_video,
+                sighting.get("source_frame", 0),
+                track_id,
+                sighting.get("notes", "YOLO Automated Field Sighting"),
+            ))
         conn.commit()
 
-    return {**sighting, "id": record_id, "timestamp": ts}
+    return {**sighting, "id": record_id, "timestamp": ts, "source_video": source_video}
 
 
 def get_sightings(

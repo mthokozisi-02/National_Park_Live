@@ -23,6 +23,7 @@ export interface AnalyticsSummary {
   species_breakdown: SpeciesSummaryItem[];
   sector_analysis: SectorAnalysisItem[];
   highest_density_sector: string;
+  is_simulated?: boolean;
 }
 
 export interface SpeciesPredictionItem {
@@ -40,6 +41,7 @@ export interface PredictiveOccurrenceResponse {
   time_window: string;
   predictions: SpeciesPredictionItem[];
   recommendation_summary: string;
+  is_simulated?: boolean;
 }
 
 export interface WildlifeReportResponse {
@@ -50,4 +52,5 @@ export interface WildlifeReportResponse {
   predictions: PredictiveOccurrenceResponse;
   key_takeaways: string[];
   author: string;
+  is_simulated?: boolean;
 }

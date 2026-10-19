@@ -109,6 +109,7 @@ export default function SafariVisionApp() {
   const handleRunInference = async (videoName?: string) => {
     const targetVideo = videoName || currentStream.videoUrl.split('/').pop() || 'final_test.mp4';
     setIsInferring(true);
+    setInferenceResult(null);
     setInferenceError(null);
     try {
       const result = await wildlifeDetectionService.runDetection(targetVideo, {
@@ -124,21 +125,38 @@ export default function SafariVisionApp() {
       }
 
       if (result.sample_detections && result.sample_detections.length > 0) {
-        const individualDetections: WildlifeDetection[] = [];
-        const speciesFrameCounts = result.species_frame_counts || result.species_counts || {};
-        const speciesTrackedCounts = result.species_tracked_counts || {};
+        // Group detections by persistent individual track ID (or detection ID if tracking is inactive)
+        // Select the highest-confidence observation as the representative individual entry
+        const individualMap = new Map<string, (typeof result.sample_detections)[0]>();
+        result.sample_detections.forEach((det) => {
+          const groupKey =
+            det.track_id !== undefined && det.track_id !== null
+              ? `track-${det.common_name}-${det.track_id}`
+              : `det-${det.id}`;
+          const existing = individualMap.get(groupKey);
+          if (!existing || (det.confidence || 0) > (existing.confidence || 0)) {
+            individualMap.set(groupKey, det);
+          }
+        });
 
-        result.sample_detections.forEach((det, idx) => {
+        const representativeDetections = Array.from(individualMap.values());
+        const speciesTrackedCounts = result.species_tracked_counts || {};
+        const speciesFrameCounts = result.species_frame_counts || result.species_counts || {};
+
+        const individualDetections: WildlifeDetection[] = representativeDetections.map((det, idx) => {
+          const totalTrackedForSpecies =
+            speciesTrackedCounts[det.common_name] ||
+            (result.tracking_active ? 1 : speciesFrameCounts[det.common_name] || 1);
           const animal = wildlifeDetectionService.convertToWildlifeDetection(
             det,
-            speciesTrackedCounts[det.common_name] || speciesFrameCounts[det.common_name] || 1,
+            totalTrackedForSpecies,
             result.video,
             idx
           );
           if (det.track_id !== undefined && det.track_id !== null) {
             animal.id = `${det.common_name.toLowerCase().replace(/\s+/g, '-')}-track-${det.track_id}`;
           }
-          individualDetections.push(animal);
+          return animal;
         });
 
         handleModelDetectionsLoaded(individualDetections);
@@ -154,13 +172,14 @@ export default function SafariVisionApp() {
   const handleLiveDetectionsFound = useCallback(
     (liveDetections: WildlifeDetection[]) => {
       if (liveDetections.length > 0) {
+        // Calculate true individual counts detected in this frame from best_finetuned.pt
+        const speciesCounts = new Map<string, number>();
+        liveDetections.forEach((d) => {
+          speciesCounts.set(d.commonName, (speciesCounts.get(d.commonName) || 0) + 1);
+        });
+
         setWildlifeDetections((prev) => {
           const speciesMap = new Map<string, WildlifeDetection>();
-          // Calculate true individual counts detected in this frame from best_finetuned.pt
-          const speciesCounts = new Map<string, number>();
-          liveDetections.forEach((d) => {
-            speciesCounts.set(d.commonName, (speciesCounts.get(d.commonName) || 0) + 1);
-          });
 
           liveDetections.forEach((d) => {
             if (!speciesMap.has(d.commonName)) {
@@ -181,29 +200,51 @@ export default function SafariVisionApp() {
         });
 
         // Inject live YOLO camera detections into sightings for instant real-time Safari Decision Support
+        // Group by species so each species has exactly ONE live sighting with the true animal count and a unique ID
         setSightings((prevSightings) => {
           const nowIso = new Date().toISOString();
-          const liveSightings: WildlifeSighting[] = liveDetections.map((det) => ({
-            id: `live-${det.commonName.toLowerCase().replace(/\s+/g, '-')}`,
-            species: det.species,
-            common_name: det.commonName,
-            confidence: det.confidence,
-            count: det.count || 1,
-            latitude: currentStream.coordinates[0],
-            longitude: currentStream.coordinates[1],
-            altitude_m: telemetry.altitude || 1045,
-            timestamp: nowIso,
-            source_video: currentStream.name || 'Live Camera Feed',
-            source_frame: 0,
-            track_id: undefined,
-            notes: `Live YOLO detection on ${currentStream.name} (${(det.confidence * 100).toFixed(0)}% conf)`,
-          }));
+          const liveSightingsMap = new Map<string, WildlifeSighting>();
 
+          liveDetections.forEach((det) => {
+            const speciesKey = det.commonName.toLowerCase().replace(/\s+/g, '-');
+            const count = speciesCounts.get(det.commonName) || 1;
+            const existing = liveSightingsMap.get(speciesKey);
+
+            if (!existing || (det.confidence && (!existing.confidence || det.confidence > existing.confidence))) {
+              liveSightingsMap.set(speciesKey, {
+                id: `live-${speciesKey}`,
+                species: det.species,
+                common_name: det.commonName,
+                confidence: det.confidence,
+                count: count,
+                latitude: currentStream.coordinates[0],
+                longitude: currentStream.coordinates[1],
+                altitude_m: telemetry.altitude || 1045,
+                timestamp: nowIso,
+                source_video: currentStream.name || 'Live Camera Feed',
+                source_frame: 0,
+                track_id: det.trackId ?? undefined,
+                notes: `Live YOLO detection on ${currentStream.name} (${count} ${count > 1 ? 'animals' : 'animal'}, ${(det.confidence * 100).toFixed(0)}% conf)`,
+              });
+            }
+          });
+
+          const liveSightings = Array.from(liveSightingsMap.values());
           const liveSpecies = new Set(liveSightings.map((s) => s.common_name));
           const nonDupePrev = prevSightings.filter(
             (s) => !s.id.startsWith('live-') || !liveSpecies.has(s.common_name)
           );
-          return [...liveSightings, ...nonDupePrev];
+
+          // Guarantee absolute uniqueness across all sighting IDs
+          const seenIds = new Set<string>();
+          const uniqueSightings: WildlifeSighting[] = [];
+          for (const s of [...liveSightings, ...nonDupePrev]) {
+            if (!seenIds.has(s.id)) {
+              seenIds.add(s.id);
+              uniqueSightings.push(s);
+            }
+          }
+          return uniqueSightings;
         });
       }
 
@@ -277,8 +318,8 @@ export default function SafariVisionApp() {
   return (
     <main className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans">
       {/* Top Header & Brand Bar */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 lg:px-8 py-3 shadow-xs">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 px-3 sm:px-4 lg:px-6 py-2.5 shadow-xs">
+        <div className="w-full max-w-[1920px] mx-auto flex items-center justify-between">
           {/* Logo & Park Location */}
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-white font-black text-lg shadow-sm">
@@ -336,11 +377,11 @@ export default function SafariVisionApp() {
       </header>
 
       {/* Main Tactical Dashboard Body */}
-      <div className="flex-1 max-w-7xl mx-auto w-full p-4 lg:p-6 flex flex-col gap-6">
+      <div className="flex-1 w-full max-w-[1920px] mx-auto px-2 sm:px-3 lg:px-4 py-3 sm:py-4 flex flex-col gap-4">
         {/* Top Overview Grid: Video Player + Telemetry Panel */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Main Video Viewport (8 Columns on desktop) */}
-          <div className="lg:col-span-8 flex flex-col gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5">
+          {/* Main Video Viewport (8 Columns on desktop, 9 on ultra-wide 2xl) */}
+          <div className="lg:col-span-8 2xl:col-span-9 flex flex-col gap-4">
             <SafariVideoPlayer
               currentStream={currentStream}
               streams={CAMERA_STREAMS}
@@ -415,8 +456,8 @@ export default function SafariVisionApp() {
             />
           </div>
 
-          {/* Right Instrument & Sightings Column (4 Columns on desktop) */}
-          <div className="lg:col-span-4 flex flex-col gap-6">
+          {/* Right Instrument & Sightings Column (4 Columns on desktop, 3 on ultra-wide 2xl) */}
+          <div className="lg:col-span-4 2xl:col-span-3 flex flex-col gap-4">
             <TelemetryPanel
               telemetry={telemetry}
               setTelemetry={setTelemetry}
@@ -434,6 +475,8 @@ export default function SafariVisionApp() {
               backendHealth={backendHealth}
               isInferring={isInferring}
               onRunInference={handleRunInference}
+              inferenceResult={inferenceResult}
+              inferenceError={inferenceError}
             />
           </div>
         </div>
@@ -461,21 +504,23 @@ export default function SafariVisionApp() {
       />
 
       {/* Footer */}
-      <footer className="bg-white border-t border-slate-200 py-4 px-6 text-xs text-slate-500 font-mono flex flex-col sm:flex-row items-center justify-between gap-2 shadow-xs">
-        <div className="flex items-center gap-2">
-          <span className="text-slate-800 font-bold">SafariVision v1.1</span>
-          <span>•</span>
-          <span>Hwange National Park Wildlife Intelligence Operations</span>
-        </div>
-        <div className="flex items-center gap-4 text-slate-600">
-          <button
-            onClick={() => setIsArchModalOpen(true)}
-            className="hover:underline hover:text-blue-600 cursor-pointer"
-          >
-            Drone Ingestion Blueprint
-          </button>
-          <span>•</span>
-          <span className="text-slate-400">Conservation Telemetry Project</span>
+      <footer className="bg-white border-t border-slate-200 py-3 px-3 sm:px-4 lg:px-6 text-xs text-slate-500 font-mono shadow-xs">
+        <div className="w-full max-w-[1920px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-800 font-bold">SafariVision v1.1</span>
+            <span>•</span>
+            <span>Hwange National Park Wildlife Intelligence Operations</span>
+          </div>
+          <div className="flex items-center gap-4 text-slate-600">
+            <button
+              onClick={() => setIsArchModalOpen(true)}
+              className="hover:underline hover:text-blue-600 cursor-pointer"
+            >
+              Drone Ingestion Blueprint
+            </button>
+            <span>•</span>
+            <span className="text-slate-400">Conservation Telemetry Project</span>
+          </div>
         </div>
       </footer>
     </main>

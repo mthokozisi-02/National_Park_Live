@@ -233,7 +233,8 @@ async def detect_frame(
     if frame is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid image frame data")
 
-    results = detector.model.predict(source=frame, conf=conf, imgsz=640, verbose=False)[0]
+    with detector._INFERENCE_LOCK:
+        results = detector.model.predict(source=frame, conf=conf, imgsz=640, verbose=False)[0]
     detections = []
     names = getattr(detector.model, "names", {})
 
@@ -347,7 +348,7 @@ def detect_video(
                     "source_video": video_name,
                     "source_frame": sample.get("frame", 0),
                     "track_id": track_id,
-                    "notes": f"Field observation from {video_name} (Track #{track_id or 'N/A'})",
+                    "notes": f"Estimated ground coords (85m AGL, -45° gimbal) from {video_name} (Track #{track_id if track_id is not None else 'N/A'})",
                 })
         except Exception as log_err:
             logger.warning(f"Failed to record sightings automatically: {log_err}")
