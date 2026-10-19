@@ -152,23 +152,25 @@ export const WildlifePanel: React.FC<WildlifePanelProps> = ({
 
       // Convert sample detections to WildlifeDetection objects for the HUD & catalog
       if (result.sample_detections && result.sample_detections.length > 0) {
-        const speciesMap = new Map<string, WildlifeDetection>();
-        const counts = result.species_frame_counts || result.species_counts || {};
+        const individualDetections: WildlifeDetection[] = [];
+        const speciesFrameCounts = result.species_frame_counts || result.species_counts || {};
+        const speciesTrackedCounts = result.species_tracked_counts || {};
 
         result.sample_detections.forEach((det, idx) => {
-          if (!speciesMap.has(det.common_name)) {
-            const animal = wildlifeDetectionService.convertToWildlifeDetection(
-              det,
-              counts[det.common_name] || 1,
-              result.video,
-              idx
-            );
-            speciesMap.set(det.common_name, animal);
+          const animal = wildlifeDetectionService.convertToWildlifeDetection(
+            det,
+            speciesTrackedCounts[det.common_name] || speciesFrameCounts[det.common_name] || 1,
+            result.video,
+            idx
+          );
+          if (det.track_id !== undefined && det.track_id !== null) {
+            animal.id = `${det.common_name.toLowerCase().replace(/\s+/g, '-')}-track-${det.track_id}`;
           }
+          individualDetections.push(animal);
         });
 
         if (onModelDetectionsLoaded) {
-          onModelDetectionsLoaded(Array.from(speciesMap.values()));
+          onModelDetectionsLoaded(individualDetections);
         }
       }
     } catch (err: any) {

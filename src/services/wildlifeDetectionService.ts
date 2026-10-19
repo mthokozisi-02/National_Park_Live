@@ -214,12 +214,15 @@ export const wildlifeDetectionService = {
       conservationStatus: status,
       habitat: 'Hwange National Park Savanna Corridor',
       diet,
-      description: `Target ${item.common_name} detected with ${(item.confidence * 100).toFixed(1)}% confidence in ${videoName}.`,
+      description: item.track_id !== undefined && item.track_id !== null
+        ? `Track #${item.track_id} (${item.common_name}) detected with ${(item.confidence * 100).toFixed(1)}% confidence in ${videoName}.`
+        : `Target ${item.common_name} detected with ${(item.confidence * 100).toFixed(1)}% confidence in ${videoName}.`,
       funFact: `Recorded in ${totalCount} frame detection(s) during video analysis.`,
       imageUrl,
       timestamp: new Date().toLocaleTimeString(),
       source: 'model',
-      modelVersion: 'best_finetuned.pt'
+      modelVersion: 'best_finetuned.pt',
+      trackId: item.track_id ?? null,
     };
   }
 };

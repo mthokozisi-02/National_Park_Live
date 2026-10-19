@@ -326,3 +326,99 @@ test('AI pipeline: Model unavailable returns empty list and does NOT fabricate d
   assert.equal(detections.length, 0, 'Must NOT fabricate fake animal records when detection fails');
 });
 
+// -------------------------------------------------------------
+// 7. Video Bounds & Object-Contain Alignment Mathematics
+// -------------------------------------------------------------
+test('VideoBounds: Correctly calculates letterbox offsets for object-contain (16:9 in 800x460 container)', () => {
+  const containerWidth = 800;
+  const containerHeight = 460;
+  const videoWidth = 1280;
+  const videoHeight = 720;
+
+  const scale = Math.min(containerWidth / videoWidth, containerHeight / videoHeight);
+  const renderedWidth = videoWidth * scale;
+  const renderedHeight = videoHeight * scale;
+  const left = (containerWidth - renderedWidth) / 2;
+  const top = (containerHeight - renderedHeight) / 2;
+
+  // Rendered video is 800 x 450
+  assert.equal(renderedWidth, 800);
+  assert.equal(renderedHeight, 450);
+  assert.equal(left, 0); // No horizontal pillarbox
+  assert.equal(top, 5);  // 5px top bar, 5px bottom bar (total 10px vertical letterbox)
+
+  // Test bounding box vertical position alignment:
+  // Animal at normalized y = 0.25 on video
+  const normalizedY = 0.25;
+  const correctPixelY = top + (normalizedY * renderedHeight);
+  assert.equal(correctPixelY, 5 + (0.25 * 450)); // 117.5px
+
+  // Without videoBounds offset, overlay would calculate 0.25 * 460 = 115px (an error of 2.5px)
+  const uncorrectedPixelY = normalizedY * containerHeight;
+  assert.notEqual(uncorrectedPixelY, correctPixelY);
+});
+
+test('VideoBounds: Correctly calculates pillarbox offsets for wide container (1000x500)', () => {
+  const containerWidth = 1000;
+  const containerHeight = 500;
+  const videoWidth = 1920;
+  const videoHeight = 1080; // 16:9
+
+  const scale = Math.min(containerWidth / videoWidth, containerHeight / videoHeight);
+  const renderedWidth = videoWidth * scale;
+  const renderedHeight = videoHeight * scale;
+  const left = (containerWidth - renderedWidth) / 2;
+  const top = (containerHeight - renderedHeight) / 2;
+
+  assert.equal(renderedHeight, 500);
+  assert.ok(Math.abs(renderedWidth - 888.88) < 0.1);
+  assert.ok(Math.abs(left - 55.55) < 0.1);
+  assert.equal(top, 0); // No vertical letterbox
+});
+
+test('Inference Latency & Timestamp Drift: Correctly flags stale frames', () => {
+  // Fresh frame: 210ms latency, 0.2s drift
+  const freshLatencyMs = 210;
+  const freshDriftSec = 0.2;
+  const isFreshStale = freshLatencyMs > 800 || freshDriftSec > 1.0;
+  assert.equal(isFreshStale, false);
+
+  // Stale frame due to high latency: 950ms
+  const highLatencyMs = 950;
+  const isHighLatencyStale = highLatencyMs > 800 || freshDriftSec > 1.0;
+  assert.equal(isHighLatencyStale, true);
+
+  // Stale frame due to video playback drift: 1.4s drift
+  const highDriftSec = 1.4;
+  const isHighDriftStale = freshLatencyMs > 800 || highDriftSec > 1.0;
+  assert.equal(isHighDriftStale, true);
+});
+
+test('Individual Animal Retention: Multiple individuals of same species are preserved by track ID', async () => {
+  const { wildlifeDetectionService } = await import('../services/wildlifeDetectionService.ts');
+
+  // Backend returned 4 elephants with different track IDs
+  const sampleDetections = [
+    { id: 'det-1', track_id: 1, common_name: 'African Bush Elephant', confidence: 0.95, box: { x: 0.1, y: 0.2, width: 0.2, height: 0.2 } },
+    { id: 'det-2', track_id: 2, common_name: 'African Bush Elephant', confidence: 0.92, box: { x: 0.4, y: 0.25, width: 0.18, height: 0.22 } },
+    { id: 'det-3', track_id: 3, common_name: 'African Bush Elephant', confidence: 0.89, box: { x: 0.65, y: 0.3, width: 0.22, height: 0.24 } },
+    { id: 'det-4', track_id: 4, common_name: 'African Bush Elephant', confidence: 0.88, box: { x: 0.8, y: 0.35, width: 0.15, height: 0.18 } },
+  ];
+
+  const individualDetections = sampleDetections.map((det, idx) => {
+    const animal = wildlifeDetectionService.convertToWildlifeDetection(det, 4, 'final_test.mp4', idx);
+    if (det.track_id !== undefined && det.track_id !== null) {
+      animal.id = `${det.common_name.toLowerCase().replace(/\s+/g, '-')}-track-${det.track_id}`;
+    }
+    return animal;
+  });
+
+  // Verify all 4 individuals are retained with distinct IDs and track numbers
+  assert.equal(individualDetections.length, 4, 'Must retain all 4 detected individuals');
+  assert.equal(individualDetections[0].trackId, 1);
+  assert.equal(individualDetections[1].trackId, 2);
+  assert.equal(individualDetections[2].trackId, 3);
+  assert.equal(individualDetections[3].trackId, 4);
+  assert.notEqual(individualDetections[0].id, individualDetections[1].id);
+});
+

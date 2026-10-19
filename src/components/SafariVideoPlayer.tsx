@@ -63,68 +63,100 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
   const [videoError, setVideoError] = useState<boolean>(false);
   const [snapshotStatus, setSnapshotStatus] = useState<{ message: string; isError?: boolean } | null>(null);
   const [simulatedPing, setSimulatedPing] = useState<number>(118);
+  const [actualInferenceLatency, setActualInferenceLatency] = useState<number | null>(null);
+  const [isDetectionStale, setIsDetectionStale] = useState<boolean>(false);
 
-  // Exact visible video rectangle within object-contain viewport
+  // Exact visible video rectangle within object-contain viewport (pixels and percentages)
   const [videoBounds, setVideoBounds] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
     leftPercent: number;
     topPercent: number;
     widthPercent: number;
     heightPercent: number;
-  }>({ leftPercent: 0, topPercent: 0, widthPercent: 100, heightPercent: 100 });
+  }>({
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+    leftPercent: 0,
+    topPercent: 0,
+    widthPercent: 100,
+    heightPercent: 100,
+  });
 
   const updateVideoBounds = useCallback(() => {
     const video = videoRef.current;
     const container = videoContainerRef.current;
     if (!video || !container) return;
 
-    const containerW = container.clientWidth;
-    const containerH = container.clientHeight;
-    if (containerW <= 0 || containerH <= 0) return;
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+    if (!containerWidth || !containerHeight) return;
 
-    const videoW = video.videoWidth || 16;
-    const videoH = video.videoHeight || 9;
+    if (!video.videoWidth || !video.videoHeight) return;
 
-    const containerAspect = containerW / containerH;
-    const videoAspect = videoW / videoH;
+    const scale = Math.min(
+      containerWidth / video.videoWidth,
+      containerHeight / video.videoHeight
+    );
 
-    let rW = containerW;
-    let rH = containerH;
-
-    if (containerAspect > videoAspect) {
-      // Container is wider than video -> pillarboxing (bars on left and right)
-      rH = containerH;
-      rW = containerH * videoAspect;
-    } else {
-      // Container is taller than video -> letterboxing (bars on top and bottom)
-      rW = containerW;
-      rH = containerW / videoAspect;
-    }
-
-    const left = (containerW - rW) / 2;
-    const top = (containerH - rH) / 2;
+    const width = video.videoWidth * scale;
+    const height = video.videoHeight * scale;
+    const left = (containerWidth - width) / 2;
+    const top = (containerHeight - height) / 2;
 
     setVideoBounds({
-      leftPercent: (left / containerW) * 100,
-      topPercent: (top / containerH) * 100,
-      widthPercent: (rW / containerW) * 100,
-      heightPercent: (rH / containerH) * 100,
+      left,
+      top,
+      width,
+      height,
+      leftPercent: (left / containerWidth) * 100,
+      topPercent: (top / containerHeight) * 100,
+      widthPercent: (width / containerWidth) * 100,
+      heightPercent: (height / containerHeight) * 100,
     });
   }, []);
 
   useEffect(() => {
-    window.addEventListener('resize', updateVideoBounds);
+    const video = videoRef.current;
+    const container = videoContainerRef.current;
+
+    const handleResize = () => {
+      updateVideoBounds();
+    };
+
+    window.addEventListener('resize', handleResize);
+
     let resizeObserver: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined' && videoContainerRef.current) {
+    if (typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(() => {
         updateVideoBounds();
       });
-      resizeObserver.observe(videoContainerRef.current);
+      if (container) resizeObserver.observe(container);
+      if (video) resizeObserver.observe(video);
     }
+
+    if (video) {
+      video.addEventListener('loadedmetadata', updateVideoBounds);
+      video.addEventListener('canplay', updateVideoBounds);
+      video.addEventListener('playing', updateVideoBounds);
+    }
+
+    updateVideoBounds();
+
     return () => {
-      window.removeEventListener('resize', updateVideoBounds);
+      window.removeEventListener('resize', handleResize);
       resizeObserver?.disconnect();
+      if (video) {
+        video.removeEventListener('loadedmetadata', updateVideoBounds);
+        video.removeEventListener('canplay', updateVideoBounds);
+        video.removeEventListener('playing', updateVideoBounds);
+      }
     };
-  }, [updateVideoBounds]);
+  }, [currentStream.videoUrl, isFullscreen, updateVideoBounds]);
 
   // Reset video error and show loading state when switching streams or videos
   useEffect(() => {
@@ -211,6 +243,9 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
           return;
         }
 
+        const captureTimestampMs = performance.now();
+        const captureVideoTimeSec = video.currentTime;
+
         const vw = video.videoWidth || 640;
         const vh = video.videoHeight || 360;
         const scale = Math.min(640 / vw, 640 / vh, 1.0);
@@ -223,10 +258,21 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
           try {
             if (blob && isMounted) {
               const liveDetections = await wildlifeDetectionService.detectFrame(blob, 0.25);
+              const elapsedMs = Math.round(performance.now() - captureTimestampMs);
+              const currentVideoSec = videoRef.current?.currentTime ?? captureVideoTimeSec;
+              const frameDriftSec = Math.abs(currentVideoSec - captureVideoTimeSec);
+              const stale = elapsedMs > 800 || frameDriftSec > 1.0;
+
+              setActualInferenceLatency(elapsedMs);
+              setIsDetectionStale(stale);
+
               if (isMounted) {
-                // Always report detections to HUD: if animals are detected, show them;
-                // if none are detected in this frame, CLEAR the overlay immediately!
-                onLiveDetectionsFoundRef.current?.(liveDetections || []);
+                // Always report detections to HUD; tag with stale status if latency or drift is high
+                const processedDetections = (liveDetections || []).map((d) => ({
+                  ...d,
+                  isStale: stale,
+                }));
+                onLiveDetectionsFoundRef.current?.(processedDetections);
               }
             }
           } catch {
@@ -641,6 +687,8 @@ export const SafariVideoPlayer: React.FC<SafariVideoPlayerProps> = ({
           showThermal={showThermal}
           onSelectAnimal={onSelectAnimal}
           videoBounds={videoBounds}
+          inferenceLatencyMs={actualInferenceLatency ?? undefined}
+          isStale={isDetectionStale}
         />
 
         {/* Snapshot Notification Banner */}

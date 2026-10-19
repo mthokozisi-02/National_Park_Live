@@ -55,6 +55,8 @@ export interface WildlifeDetection {
   timestamp: string;
   source: DetectionSource;
   modelVersion?: string;
+  trackId?: number | null;
+  isStale?: boolean;
 }
 
 export interface SafariCameraStream {
